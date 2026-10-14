@@ -25,7 +25,7 @@ A conta da fotógrafa continua em `js/config.js`. Os clientes e os álbuns criam
 
 No estúdio pode criar clientes, mudar o nome e a palavra-passe, deixar uma nota que só ela vê, desativar ou retirar o acesso, criar vários álbuns para o mesmo cliente, ocultar um álbum e passá-lo a outro cliente. Retirar o acesso não apaga as fotografias.
 
-As cinco contas iniciais (Costa, Santos, Oliveira, Ferreira, Rodrigues) já estão nesse ficheiro. Se o ficheiro não carregar, o site volta a essas contas.
+O estúdio começa vazio. Os clientes e os álbuns criam-se lá.
 
 ## Quando o cliente responde
 
