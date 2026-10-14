@@ -5,7 +5,7 @@
    afasta visitas casuais, não esconde os ficheiros de quem
    saiba procurá-los no repositório. */
 window.CONFIG = {
-  nome: "Catarina Candeias",
+  nome: "Catarina Candeias Fotografia",
   oficio: "Fotografia",
   repositorio: {
     owner: "candeiassantiago393-spec",

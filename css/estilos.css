@@ -76,8 +76,9 @@ a { color: inherit; }
 
 a.marca {
   text-decoration: none;
-  font-size: 26px;
-  line-height: 1;
+  font-size: clamp(20px, 2.6vw, 26px);
+  line-height: 1.05;
+  text-wrap: balance;
 }
 
 .kicker {
@@ -98,7 +99,7 @@ a.marca {
 .login h1 {
   font-size: clamp(52px, 9vw, 104px);
   line-height: 0.92;
-  max-width: 12ch;
+  max-width: 18ch;
   text-wrap: balance;
   margin: 10px 0 36px;
 }
