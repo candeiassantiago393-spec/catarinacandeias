@@ -1,5 +1,13 @@
 {
-  "clientes": [],
+  "clientes": [
+    {
+      "utilizador": "paula",
+      "palavraPasse": "paulacandi123",
+      "nome": "paula",
+      "ativo": true,
+      "nota": ""
+    }
+  ],
   "albuns": [
     {
       "id": "casmento-oriev-2d3d",
