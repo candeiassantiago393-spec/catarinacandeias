@@ -150,12 +150,12 @@ function toast(texto) {
 }
 
 function mensagemErro(erro) {
-  const texto = (erro && erro.message) ? erro.message : 'Não consegui concluir.';
-  if (/bad credentials/i.test(texto)) return 'O código do GitHub não foi aceite.';
-  if (/not found/i.test(texto)) return 'Não encontrei esse repositório, ou o código não tem acesso. Confirme o nome e se o site já tem um primeiro commit.';
-  if (/rate limit/i.test(texto)) return 'O GitHub pediu uma pausa. Espere um pouco e publique outra vez.';
-  if (/resource not accessible|must have push access|permission/i.test(texto)) return 'Este código não pode alterar o repositório. Precisa de permissão de escrita no conteúdo.';
-  if (/failed to fetch|networkerror|load failed/i.test(texto)) return 'A ligação caiu. O que já tinha sido publicado mantém-se; tente outra vez para enviar o resto.';
+  const texto = (erro && erro.message) ? erro.message : 'Não consegui.';
+  if (/bad credentials|permission|resource not accessible|must have push access/i.test(texto)) return 'Não consegui guardar.';
+  if (/not found/i.test(texto)) return 'Não encontrei isto.';
+  if (/rate limit/i.test(texto)) return 'Espera um bocadinho e tenta outra vez.';
+  if (/failed to fetch|networkerror|load failed/i.test(texto)) return 'A ligação caiu. O que já entrou fica.';
+  if (/github|token|código/i.test(texto)) return 'Não consegui guardar.';
   return texto;
 }
 
@@ -277,7 +277,7 @@ function destinoCliente(conta) {
 }
 
 function mensagemPadrao(nome) {
-  return `Olá, ${nome}. O visto fica nas fotografias que querem guardar, a cruz nas que podem dispensar. A estrela marca as que querem destacar. Podem escrever em qualquer imagem. No fim, enviem a seleção pelo botão em baixo.`;
+  return `Olá, ${nome}. Visto no que queres, cruz no que não queres, estrela no que fica no álbum.`;
 }
 
 function palavraPasseNova() {
@@ -322,20 +322,20 @@ function idAlbum(titulo) {
 }
 
 function tituloAlbum(album, manifesto) {
-  return manifesto?.titulo || album.titulo || 'Álbum por nomear';
+  return manifesto?.titulo || album.titulo || 'Sem nome';
 }
 
 async function commitJson(ficheiros, mensagem) {
   const repo = repositorio();
   if (!nomeValido(repo.owner) || !nomeValido(repo.repo) || (repo.branch && !nomeValido(repo.branch))) {
-    throw new Error('Neste computador ainda falta a ligação inicial. Quem montou o site trata disso uma vez. Depois, a fotógrafa só larga as fotografias.');
+    throw new Error('Não consegui guardar.');
   }
   if (!GITHUB.token()) {
-    throw new Error('Neste computador ainda falta a ligação inicial. Quem montou o site trata disso uma vez. Depois, a fotógrafa só larga as fotografias.');
+    throw new Error('Não consegui guardar.');
   }
   const info = await GITHUB.pedido(`/repos/${repo.owner}/${repo.repo}`);
   if (info.permissions && info.permissions.push === false) {
-    throw new Error('Este código consegue ver o repositório, mas não escrever.');
+    throw new Error('Não consegui guardar.');
   }
   const branch = repo.branch || info.default_branch;
   const tree = [];
@@ -537,22 +537,16 @@ function numeroDe(foto) {
 }
 
 function textoRecado(conta) {
-  const endereco = urlDoSite() || 'o endereço do site';
+  const endereco = urlDoSite() || 'o site';
   const linhas = [
     `Olá, ${conta.nome}.`,
-    '',
-    'As fotografias já estão prontas para verem:',
+    'As fotos estão aqui:',
     endereco,
     '',
-    `Utilizador: ${conta.utilizador}`,
-    `Palavra-passe: ${conta.palavraPasse}`,
-    ''
+    conta.utilizador,
+    conta.palavraPasse
   ];
-  if (albunsDo(conta.utilizador, false).length > 1) {
-    linhas.push('Há mais do que um trabalho. Depois de entrar, escolham o álbum.');
-    linhas.push('');
-  }
-  linhas.push('Entrem e marquem com o visto as que gostam e com a cruz as que não querem. A estrela é para o álbum. Podem deixar comentários. No fim, carreguem em «Enviar seleção».');
+  if (albunsDo(conta.utilizador, false).length > 1) linhas.push('', 'Tens mais do que um álbum. Escolhe quando entrares.');
   return linhas.join('\n');
 }
 
@@ -762,14 +756,14 @@ function definirProgresso(texto) {
 async function publicarSala(galeriaId, ficheiros, meta, onLote) {
   const repo = repositorio();
   if (!nomeValido(repo.owner) || !nomeValido(repo.repo)) {
-    throw new Error('Falta o utilizador ou o nome do repositório no GitHub.');
+    throw new Error('Não consegui guardar.');
   }
-  if (repo.branch && !nomeValido(repo.branch)) throw new Error('O nome do ramo não serve.');
-  if (!GITHUB.token()) throw new Error('Neste computador ainda falta a ligação inicial. Quem montou o site trata disso uma vez. Depois, a fotógrafa só larga as fotografias.');
+  if (repo.branch && !nomeValido(repo.branch)) throw new Error('Não consegui guardar.');
+  if (!GITHUB.token()) throw new Error('Não consegui guardar.');
 
   const info = await GITHUB.pedido(`/repos/${repo.owner}/${repo.repo}`);
   if (info.permissions && info.permissions.push === false) {
-    throw new Error('Este código consegue ver o repositório, mas não escrever.');
+    throw new Error('Não consegui guardar.');
   }
   const branch = repo.branch || info.default_branch;
   let manifesto = await lerManifestAtual(repo.owner, repo.repo, branch, galeriaId);
@@ -844,11 +838,11 @@ async function publicarSala(galeriaId, ficheiros, meta, onLote) {
 }
 
 async function removerFotoPublicada(foto) {
-  const ok = await pedirConfirmacao(`Remover «${foto.nome}» desta sala? O cliente deixa de a ver.`, 'Remover');
+  const ok = await pedirConfirmacao('Tirar esta foto?', 'Tirar');
   if (!ok) return;
   const repo = repositorio();
   if (!GITHUB.token() || !nomeValido(repo.owner) || !nomeValido(repo.repo)) {
-    toast('Para remover do site, ligue primeiro o GitHub.');
+    toast('Não consegui tirar esta foto.');
     return;
   }
   estado.ocupado = true;
@@ -868,7 +862,7 @@ async function removerFotoPublicada(foto) {
     const sha = await GITHUB.criarBlob(repo.owner, repo.repo, await blobBase64(new Blob([JSON.stringify(manifesto, null, 2)], { type: 'application/json' })));
     arvore.push({ path: `galerias/${estado.galeriaId}/manifest.json`, mode: '100644', type: 'blob', sha });
     await GITHUB.commit(repo.owner, repo.repo, branch, arvore, `Remover fotografia de ${estado.galeriaId}`);
-    toast('Fotografia removida. Pode demorar um minuto a desaparecer para o cliente.');
+    toast('Tirei. O cliente deixa de a ver daqui a um minuto.');
     estado.ocupado = false;
     guardarRascunhoDoFormulario();
     navegar();
@@ -884,7 +878,7 @@ function topo(conta, kicker) {
   return el('header', { class: 'topo' }, [
     el('div', {}, [
       el('a', { class: 'marca', href: destino, text: CONFIG.nome }),
-      el('p', { class: 'kicker', text: kicker || 'Sala de provas' })
+      kicker ? el('p', { class: 'kicker', text: kicker }) : null
     ]),
     botao('sair', 'Sair', 'texto nao-imprimir')
   ]);
@@ -899,7 +893,6 @@ function pintarLogin(mensagem) {
   const app = document.getElementById('app');
   app.className = '';
   app.replaceChildren(el('section', { class: 'login' }, [
-    el('p', { class: 'kicker', text: 'Sala de provas' }),
     el('h1', { text: CONFIG.nome }),
     el('div', { class: 'login-corpo' }, [
       el('form', { 'data-acao': 'entrar' }, [
@@ -907,41 +900,14 @@ function pintarLogin(mensagem) {
         el('label', { text: 'Palavra-passe' }, el('input', { id: 'palavra-passe', type: 'password', autocomplete: 'current-password', required: true })),
         el('p', { class: 'erro', role: 'alert', text: mensagem || '' }),
         el('div', { class: 'acoes' }, [el('button', { type: 'submit', class: 'primario', text: 'Entrar' })])
-      ]),
-      el('p', { class: 'lede', text: 'Cada cliente vê só a sua sala. Visto no que fica, cruz no que sai, estrela no que querem destacar.' })
+      ])
     ])
   ]));
   document.getElementById('utilizador').focus();
 }
 
-function blocoLigacao(compacto) {
-  const repo = repositorio();
-  const ligado = jsonSeguro('cc-ligado');
-  const temToken = !!GITHUB.token();
-  if (compacto) {
-    if (temToken) return null;
-    return el('p', { class: 'aviso-suave nao-imprimir', text: 'Neste computador ainda falta a ligação inicial. Quem montou o site trata disso uma vez, no fundo do estúdio. A fotógrafa depois só larga as fotografias.' });
-  }
-  return el('details', { class: 'ligacao nao-imprimir', open: temToken ? null : true }, [
-    el('summary', { text: temToken ? 'Ligação inicial feita neste computador' : 'Ligação inicial do site, uma vez' }),
-    el('p', { class: 'sub', text: 'Isto não é trabalho da fotógrafa. Quem montou o site cola aqui um código, uma vez, neste computador. A partir daí ela entra, abre o álbum e larga as fotografias.' }),
-    temToken
-      ? el('p', { class: 'sub', text: 'Ligado a ' + ((ligado && ligado.fullName) || (repo.owner + '/' + repo.repo)) + '.' })
-      : el('p', { class: 'aviso-suave', text: 'O código é só deste repositório, com Contents em leitura e escrita. O GitHub mostra-o uma vez. Não fica gravado no site.' }),
-    el('p', { class: 'aviso-suave' }, [
-      el('a', { href: 'https://github.com/settings/personal-access-tokens/new', target: '_blank', rel: 'noopener noreferrer', text: 'Criar o código' })
-    ]),
-    el('div', { class: 'duas' }, [
-      campoTexto('campo-owner', 'Utilizador GitHub', repo.owner, { autocomplete: 'off', spellcheck: 'false' }),
-      campoTexto('campo-repo', 'Repositório', repo.repo, { autocomplete: 'off', spellcheck: 'false' })
-    ]),
-    campoTexto('campo-branch', 'Ramo, se não for o principal', repo.branch, { placeholder: 'main', autocomplete: 'off', spellcheck: 'false' }),
-    el('label', { text: 'Código' }, el('input', { id: 'campo-token', type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: temToken ? 'Já está guardado. Cole outro para substituir.' : 'github_pat_…' })),
-    el('div', { class: 'acoes' }, [
-      botao('guardar-token', temToken ? 'Testar outra vez' : 'Guardar e testar', 'primario'),
-      temToken ? botao('esquecer-token', 'Esquecer o código', 'texto perigo') : null
-    ])
-  ]);
+function blocoLigacao() {
+  return null;
 }
 
 function selectCliente(album) {
@@ -957,22 +923,22 @@ function selectCliente(album) {
 function linhaAlbum(album, manifesto) {
   const fotos = manifesto ? fotosUteis(manifesto).length : null;
   const recebida = lerRecebida(album.id);
-  let detalhe = 'Ainda a chegar ao site. Atualize daqui a um minuto.';
+  let detalhe = 'Ainda a chegar.';
   if (manifesto) {
-    detalhe = fotos === 0 ? 'Ainda sem fotografias' : `${fotos} ${fotos === 1 ? 'fotografia' : 'fotografias'}`;
+    detalhe = fotos === 0 ? 'Sem fotos' : `${fotos} ${fotos === 1 ? 'foto' : 'fotos'}`;
     if (manifesto.prazo) detalhe += ' · até ' + dataLonga(manifesto.prazo);
   }
   return el('article', { class: 'album-linha' + (album.arquivado ? ' oculto' : '') }, [
     el('div', {}, [
-      el('p', { class: 'kicker', text: album.arquivado ? 'Oculto para o cliente' : (manifesto?.evento || album.evento || 'Álbum') }),
+      el('p', { class: 'kicker', text: album.arquivado ? 'Oculto' : (manifesto?.evento || album.evento || 'Álbum') }),
       el('h3', { text: tituloAlbum(album, manifesto) }),
       el('p', { class: 'sub', text: detalhe }),
-      recebida ? el('p', { class: 'sub', text: 'Seleção recebida' + (recebida.recebidoEm ? ' · ' + dataCurta(recebida.recebidoEm) : '') }) : null,
+      recebida ? el('p', { class: 'sub', text: 'Já escolheu' }) : null,
       selectCliente(album)
     ]),
     el('div', { class: 'lado nao-imprimir' }, [
       el('a', { class: 'secundario', href: '#/estudio/' + album.id, text: 'Preparar' }),
-      el('a', { class: 'texto', href: '#/sala/' + album.id, text: 'Ver sala' }),
+      el('a', { class: 'texto', href: '#/sala/' + album.id, text: 'Ver' }),
       botao(album.arquivado ? 'mostrar-album' : 'ocultar-album', album.arquivado ? 'Mostrar' : 'Ocultar', 'texto', { 'data-id': album.id })
     ])
   ]);
@@ -983,16 +949,14 @@ function painelFormulario() {
   if (!form) return null;
   if (form.tipo === 'cliente') {
     return el('section', { class: 'painel-form', id: 'painel-form' }, [
-      el('h3', { text: form.modo === 'novo' ? 'Novo cliente' : 'Editar cliente' }),
-      el('p', { class: 'sub', text: 'Isto fica gravado no site. O cliente só entra noutro aparelho depois de guardar.' }),
+      el('h3', { text: form.modo === 'novo' ? 'Novo cliente' : 'Editar' }),
       campoTexto('form-nome', 'Nome', form.nome, { autocomplete: 'off', maxlength: '80' }),
       campoTexto('form-utilizador', 'Utilizador', form.utilizador, { autocomplete: 'off', spellcheck: 'false', maxlength: '20', 'data-auto': form.modo === 'novo' ? '1' : '0' }),
       campoTexto('form-passe', 'Palavra-passe', form.palavraPasse, { autocomplete: 'off', spellcheck: 'false', maxlength: '80' }),
-      el('label', { text: 'Nota interna' }, el('textarea', { id: 'form-nota', rows: '2', maxlength: '500', value: form.nota || '' })),
-      el('p', { class: 'aviso-suave', text: 'A nota fica só no estúdio. O cliente não a vê.' }),
+      el('label', { text: 'Nota' }, el('textarea', { id: 'form-nota', rows: '2', maxlength: '500', value: form.nota || '' })),
       el('div', { class: 'acoes' }, [
-        botao('guardar-cliente', 'Guardar no site', 'primario'),
-        botao('nova-passe', 'Gerar outra palavra-passe', 'texto'),
+        botao('guardar-cliente', 'Guardar', 'primario'),
+        botao('nova-passe', 'Outra passe', 'texto'),
         botao('cancelar-form', 'Cancelar', 'texto')
       ])
     ]);
@@ -1005,12 +969,11 @@ function painelFormulario() {
     select.value = form.cliente || (clientes()[0]?.utilizador || '');
     return el('section', { class: 'painel-form', id: 'painel-form' }, [
       el('h3', { text: 'Novo álbum' }),
-      el('p', { class: 'sub', text: 'Cada álbum é uma sala. O mesmo cliente pode ter várias: casamento, sessão, retrato, o que for.' }),
-      campoTexto('form-titulo', 'Nome do álbum', form.titulo, { autocomplete: 'off', maxlength: '120', placeholder: 'Casamento, sessão, retrato…' }),
+      campoTexto('form-titulo', 'Nome', form.titulo, { autocomplete: 'off', maxlength: '120', placeholder: 'O casamento, a sessão…' }),
       campoTexto('form-evento', 'Tipo de trabalho', form.evento, { autocomplete: 'off', maxlength: '80', placeholder: 'Casamento, batizado, família…' }),
-      clientes().length ? el('label', { text: 'Cliente' }, select) : el('p', { class: 'aviso-suave', text: 'Crie primeiro um cliente.' }),
+      clientes().length ? el('label', { text: 'Cliente' }, select) : el('p', { class: 'sub', text: 'Primeiro cria um cliente.' }),
       el('div', { class: 'acoes' }, [
-        clientes().length ? botao('guardar-album', 'Criar álbum', 'primario') : null,
+        clientes().length ? botao('guardar-album', 'Criar', 'primario') : null,
         botao('cancelar-form', 'Cancelar', 'texto')
       ])
     ]);
@@ -1024,57 +987,44 @@ function pintarEstudio(ticket, manifestos) {
   const lista = el('div', { class: 'salas' });
   const ordenados = clientes().slice().sort((a, b) => Number(a.ativo === false) - Number(b.ativo === false) || a.nome.localeCompare(b.nome, 'pt'));
   if (!ordenados.length) {
-    lista.append(el('p', { class: 'sub', text: 'Ainda não há clientes. Crie o primeiro e depois o álbum.' }));
+    lista.append(el('p', { class: 'sub', text: 'Ainda sem clientes.' }));
   }
   for (const cliente of ordenados) {
     const albuns = albunsVisiveis().filter((album) => album.cliente === cliente.utilizador);
     lista.append(el('section', { class: 'cliente-bloco' + (cliente.ativo === false ? ' desativado' : '') }, [
-      el('p', { class: 'kicker', text: cliente.ativo === false ? 'Acesso desativado' : 'Cliente' }),
+      cliente.ativo === false ? el('p', { class: 'kicker', text: 'Desativado' }) : null,
       el('h3', { text: cliente.nome }),
       el('p', { class: 'credenciais', text: cliente.utilizador + '  ·  ' + cliente.palavraPasse }),
       cliente.nota ? el('p', { class: 'sub', text: cliente.nota }) : null,
       el('div', { class: 'acoes nao-imprimir' }, [
-        botao('copiar-recado', 'Copiar recado', 'texto', { 'data-utilizador': cliente.utilizador }),
+        botao('copiar-recado', 'Copiar acesso', 'texto', { 'data-utilizador': cliente.utilizador }),
         botao('editar-cliente', 'Editar', 'texto', { 'data-utilizador': cliente.utilizador }),
         botao('novo-album', 'Novo álbum', 'texto', { 'data-utilizador': cliente.utilizador }),
         botao(cliente.ativo === false ? 'reativar-cliente' : 'desativar-cliente', cliente.ativo === false ? 'Reativar' : 'Desativar', 'texto', { 'data-utilizador': cliente.utilizador }),
-        botao('retirar-cliente', 'Retirar acesso', 'texto perigo', { 'data-utilizador': cliente.utilizador })
+        botao('retirar-cliente', 'Tirar', 'texto perigo', { 'data-utilizador': cliente.utilizador })
       ]),
       albuns.length
         ? el('div', { class: 'albuns-cliente' }, albuns.map((album) => linhaAlbum(album, manifestos[album.id])))
-        : el('p', { class: 'sub', text: 'Ainda sem álbum.' })
+        : el('p', { class: 'sub', text: 'Sem álbum.' })
     ]));
   }
   const soltos = albunsVisiveis().filter((album) => !album.cliente);
   if (soltos.length) {
     lista.append(el('section', { class: 'cliente-bloco' }, [
-      el('p', { class: 'kicker', text: 'Sem cliente' }),
-      el('h3', { text: 'Álbuns por atribuir' }),
-      el('p', { class: 'sub', text: 'As fotografias mantêm-se. Escolha um cliente em cada um.' }),
+      el('h3', { text: 'Por atribuir' }),
       el('div', { class: 'albuns-cliente' }, soltos.map((album) => linhaAlbum(album, manifestos[album.id])))
     ]));
   }
   const app = document.getElementById('app');
   if (ticket !== pedidoNavegacao) return;
   app.replaceChildren(el('div', { class: 'pagina' }, [
-    topo(conta, 'Estúdio'),
-    el('section', { class: 'intro' }, [
-      el('h2', { text: 'Os clientes e os álbuns.' }),
-      el('ol', { class: 'passos' }, [
-        el('li', {}, [el('strong', { text: '01' }), 'Crie o cliente e, nele, um álbum para cada trabalho.']),
-        el('li', {}, [el('strong', { text: '02' }), 'Abra o álbum, escreva o trabalho e largue as fotografias.']),
-        el('li', {}, [el('strong', { text: '03' }), 'Copie o recado e envie-o ao cliente.']),
-        el('li', {}, [el('strong', { text: '04' }), 'Quando devolverem o ficheiro, importe-o nesse álbum.'])
-      ]),
-      el('p', { class: 'aviso-suave', text: 'A palavra-passe separa os clientes. No plano gratuito do GitHub o site é público: serve para entregar um trabalho, não para material que tenha de ficar secreto. Clientes, palavras-passe e álbuns mudam-se aqui e ficam no site.' })
-    ]),
+    topo(conta),
     el('div', { class: 'acoes nao-imprimir' }, [
       botao('novo-cliente', 'Novo cliente', 'primario'),
       botao('novo-album', 'Novo álbum', 'secundario')
     ]),
     painelFormulario(),
     lista,
-    blocoLigacao(false)
   ]));
   document.getElementById('painel-form')?.scrollIntoView({ block: 'start' });
   document.getElementById('form-nome')?.focus();
@@ -1094,7 +1044,7 @@ function pintarAlbunsCliente(ticket) {
       el('div', {}, [
         el('p', { class: 'kicker', text: manifesto?.evento || album.evento || 'Álbum' }),
         el('h3', { text: tituloAlbum(album, manifesto) }),
-        el('p', { class: 'sub', text: fotos == null ? 'Ainda a chegar. Atualize daqui a um minuto.' : (fotos === 0 ? 'Ainda sem fotografias' : `${fotos} ${fotos === 1 ? 'fotografia' : 'fotografias'}`) })
+        el('p', { class: 'sub', text: fotos == null ? 'Ainda a chegar.' : (fotos === 0 ? 'Sem fotos' : `${fotos} ${fotos === 1 ? 'foto' : 'fotos'}`) })
       ]),
       el('div', { class: 'lado' }, [
         el('a', { class: 'primario', href: '#/sala/' + album.id, text: 'Abrir' })
@@ -1102,14 +1052,11 @@ function pintarAlbunsCliente(ticket) {
     ]);
   });
   app.replaceChildren(el('div', { class: 'pagina' }, [
-    topo(conta, 'Os seus álbuns'),
-    el('section', { class: 'intro' }, [
-      el('h2', { text: lista.length ? 'Escolha o trabalho.' : 'Ainda não há álbuns.' }),
-      el('p', { class: 'lede', text: lista.length
-        ? 'Cada trabalho tem a sua sala. O visto, a cruz e a estrela ficam nesse álbum.'
-        : 'Quando houver um álbum para si, aparece aqui. Se acabou de ser criado, espere um minuto e atualize.' })
-    ]),
-    lista.length ? el('div', { class: 'salas' }, blocos) : el('div', { class: 'acoes' }, [botao('atualizar', 'Atualizar', 'secundario')])
+    topo(conta),
+    lista.length ? el('div', { class: 'salas' }, blocos) : el('section', { class: 'vazio' }, [
+      el('h2', { text: 'Ainda sem álbuns.' }),
+      el('div', { class: 'acoes' }, [botao('atualizar', 'Atualizar', 'secundario')])
+    ])
   ]));
 }
 
@@ -1181,17 +1128,16 @@ function legendaMarca(marca) {
 function blocoRecebida(manifesto) {
   const recebida = lerRecebida(estado.galeriaId);
   const corpo = [
-    el('h2', { text: 'Seleção do cliente' }),
-    el('p', { class: 'aviso-suave', text: 'Quando lhe enviarem o ficheiro, largue-o nesta página ou escolha-o. O CSV abre no Excel em português e lista o nome de cada ficheiro.' })
+    el('h2', { text: 'A escolha' })
   ];
   if (!recebida) {
     corpo.push(el('div', { class: 'acoes nao-imprimir' }, [
-      botao('abrir-seletor', 'Importar seleção', 'secundario', { 'data-alvo': '#ficheiro-selecao' })
+      botao('abrir-seletor', 'Trazer', 'secundario', { 'data-alvo': '#ficheiro-selecao' })
     ]));
     return el('section', { class: 'secção', id: 'zona-selecao' }, corpo);
   }
   const contagem = resumoDe(manifesto, recebida);
-  corpo.push(el('p', { class: 'sub', text: 'Recebida ' + (recebida.recebidoEm ? dataCurta(recebida.recebidoEm) : '') }));
+  corpo.push(el('p', { class: 'sub', text: 'Chegou' + (recebida.recebidoEm ? ' ' + dataCurta(recebida.recebidoEm) : '') }));
   corpo.push(el('div', { class: 'chips' }, [
     el('span', {}, ['Gosto ', el('strong', { text: String(contagem.gosto) })]),
     el('span', {}, ['Não gosto ', el('strong', { text: String(contagem.nao) })]),
@@ -1200,7 +1146,7 @@ function blocoRecebida(manifesto) {
     el('span', {}, ['Por decidir ', el('strong', { text: String(contagem.pendentes) })])
   ]));
   if ((recebida.nota || '').trim()) {
-    corpo.push(el('p', { class: 'etiqueta', text: 'Nota do cliente' }));
+    corpo.push(el('p', { class: 'etiqueta', text: 'Nota' }));
     corpo.push(el('p', { class: 'recado', text: recebida.nota.trim() }));
   }
   const comentarios = fotosUteis(manifesto).filter((foto) => (recebida.fotos[foto.id]?.comentario || '').trim());
@@ -1211,9 +1157,9 @@ function blocoRecebida(manifesto) {
     ]))));
   }
   corpo.push(el('div', { class: 'acoes nao-imprimir' }, [
-    botao('csv', 'Descarregar CSV', 'primario'),
-    botao('abrir-seletor', 'Substituir seleção', 'secundario', { 'data-alvo': '#ficheiro-selecao' }),
-    botao('limpar-selecao', 'Limpar seleção', 'texto')
+    botao('csv', 'Excel', 'primario'),
+    botao('abrir-seletor', 'Trocar', 'secundario', { 'data-alvo': '#ficheiro-selecao' }),
+    botao('limpar-selecao', 'Limpar', 'texto')
   ]));
   corpo.push(el('div', { class: 'grelha recebidas', id: 'grelha-recebida' }, fotosUteis(manifesto).map((foto) => celulaFoto(foto, 'recebida'))));
   return el('section', { class: 'secção', id: 'zona-selecao' }, corpo);
@@ -1229,60 +1175,53 @@ function pintarPreparar(ticket, manifesto) {
   if (ticket !== pedidoNavegacao) return;
   app.replaceChildren(el('div', { class: 'pagina preparar' }, [
     topo(conta, familia.nome),
-    el('p', { class: 'nao-imprimir' }, el('a', { href: '#/estudio', text: 'Todas as salas' })),
+    el('p', { class: 'nao-imprimir' }, el('a', { href: '#/estudio', text: 'Estúdio' })),
     el('section', { class: 'cabeca-sala' }, [
-      el('p', { class: 'kicker', text: familia.nome }),
-      el('h2', { text: form.titulo || 'Nova sala' }),
-      familia.utilizador ? el('p', { class: 'credenciais', text: familia.utilizador + '  ·  ' + familia.palavraPasse }) : el('p', { class: 'sub', text: 'Este álbum ainda não tem cliente. Atribua um no estúdio para ele poder entrar.' }),
+      el('h2', { text: form.titulo || familia.nome || 'Sala' }),
+      familia.utilizador ? el('p', { class: 'credenciais', text: familia.utilizador + '  ·  ' + familia.palavraPasse }) : null,
       el('div', { class: 'acoes nao-imprimir' }, [
-        botao('copiar-recado', 'Copiar recado de acesso', 'secundario', { 'data-galeria': familia.galeria }),
-        el('a', { class: 'texto', href: '#/sala/' + familia.galeria, text: 'Ver como o cliente' })
+        botao('copiar-recado', 'Copiar acesso', 'secundario', { 'data-galeria': familia.galeria }),
+        el('a', { class: 'texto', href: '#/sala/' + familia.galeria, text: 'Ver' })
       ])
     ]),
-    blocoLigacao(true),
     el('section', { class: 'secção' }, [
-      el('h2', { text: 'O recado' }),
       el('div', { class: 'duas' }, [
-        el('label', { text: 'Tipo de trabalho' }, el('input', { 'data-campo': 'evento', value: form.evento || '', maxlength: '40', placeholder: 'Casamento, sessão, retrato…' })),
-        el('label', { text: 'Título' }, el('input', { 'data-campo': 'titulo', value: form.titulo || '', maxlength: '120', placeholder: 'Nome do trabalho' }))
+        el('label', { text: 'Trabalho' }, el('input', { 'data-campo': 'evento', value: form.evento || '', maxlength: '40', placeholder: 'Casamento, sessão…' })),
+        el('label', { text: 'Nome' }, el('input', { 'data-campo': 'titulo', value: form.titulo || '', maxlength: '120' }))
       ]),
       el('div', { class: 'duas' }, [
         el('label', { text: 'Data' }, el('input', { 'data-campo': 'data', type: 'date', value: form.data || '' })),
-        el('label', { text: 'Prazo da seleção' }, el('input', { 'data-campo': 'prazo', type: 'date', value: form.prazo || '' }))
+        el('label', { text: 'Até quando' }, el('input', { 'data-campo': 'prazo', type: 'date', value: form.prazo || '' }))
       ]),
       el('div', { class: 'duas' }, [
-        el('label', { text: 'Local' }, el('input', { 'data-campo': 'local', value: form.local || '', maxlength: '160' })),
-        el('label', { text: 'Número para o álbum' }, el('input', { 'data-campo': 'limiteAlbum', type: 'number', min: '0', step: '1', value: form.limiteAlbum ?? '' }))
+        el('label', { text: 'Sítio' }, el('input', { 'data-campo': 'local', value: form.local || '', maxlength: '160' })),
+        el('label', { text: 'Fotos no álbum' }, el('input', { 'data-campo': 'limiteAlbum', type: 'number', min: '0', step: '1', value: form.limiteAlbum ?? '' }))
       ]),
-      el('label', { text: 'Mensagem ao cliente' }, el('textarea', { 'data-campo': 'mensagem', rows: '5', value: form.mensagem || '' }))
+      el('label', { text: 'Recado' }, el('textarea', { 'data-campo': 'mensagem', rows: '3', value: form.mensagem || '' }))
     ]),
     el('section', { class: 'secção nao-imprimir' }, [
-      el('h2', { text: 'Fotografias' }),
-      el('p', { class: 'aviso-suave', text: 'Largue JPEG, PNG ou WebP em qualidade máxima. Pode ser uma pasta inteira. O original fica guardado; na grelha o cliente vê uma versão mais leve e, ao abrir, a fotografia completa. HEIC não serve — exporte JPEG.' }),
       el('div', { class: 'queda' }, [
-        el('p', { text: 'Largue aqui as fotografias.' }),
+        el('p', { text: 'Larga as fotos aqui.' }),
         el('div', { class: 'acoes' }, [
-          botao('abrir-seletor', 'Escolher fotografias', 'secundario', { 'data-alvo': '#ficheiro-fotos' }),
-          botao('abrir-seletor', 'Escolher uma pasta', 'secundario', { 'data-alvo': '#ficheiro-pasta' })
+          botao('abrir-seletor', 'Escolher', 'secundario', { 'data-alvo': '#ficheiro-fotos' }),
+          botao('abrir-seletor', 'Uma pasta', 'secundario', { 'data-alvo': '#ficheiro-pasta' })
         ])
       ]),
       el('input', { id: 'ficheiro-fotos', type: 'file', hidden: true, multiple: true, accept: 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp', 'data-acao': 'escolher-fotos' }),
       el('input', { id: 'ficheiro-pasta', type: 'file', hidden: true, multiple: true, webkitdirectory: true, 'data-acao': 'escolher-fotos' }),
       el('p', { id: 'fila-resumo', class: 'sub', text: '' }),
-      el('p', { id: 'fila-aviso', class: 'aviso-suave', hidden: true, text: 'Este envio é pesado. Se a ligação falhar, publique outra vez: o que já entrou fica no site e o resto continua na lista.' }),
+      el('p', { id: 'fila-aviso', class: 'aviso-suave', hidden: true, text: 'É pesado. Se falhar, publica outra vez.' }),
       el('ul', { class: 'fila', id: 'fila-fotos' }),
       el('div', { class: 'acoes' }, [
-        botao('publicar', fila.length ? 'Publicar' : 'Publicar recado', 'primario', { disabled: estado.ocupado }),
-        fila.length ? botao('limpar-fila', 'Limpar lista', 'texto') : null
+        botao('publicar', fila.length ? 'Publicar' : 'Guardar', 'primario', { disabled: estado.ocupado }),
+        fila.length ? botao('limpar-fila', 'Limpar', 'texto') : null
       ]),
       el('p', { id: 'progresso-publicacao', class: 'progresso', 'aria-live': 'polite', text: estado.progresso || '' })
     ]),
     el('input', { id: 'ficheiro-selecao', type: 'file', hidden: true, accept: 'application/json,.json', 'data-acao': 'importar-ficheiro' }),
     blocoRecebida(manifesto),
     fotosUteis(manifesto).length ? el('section', { class: 'secção' }, [
-      el('h2', { text: 'Já nesta sala' }),
-      el('p', { class: 'aviso-suave', text: fotosUteis(manifesto).length + ' publicadas. Se acabou de enviar e ainda não aparecem, espere um minuto e atualize.' }),
-      el('div', { class: 'acoes nao-imprimir' }, [botao('atualizar', 'Atualizar', 'texto')]),
+      el('h2', { text: 'Já no álbum' }),
       el('div', { class: 'grelha', id: 'grelha-gerir' }, fotosUteis(manifesto).map((foto) => celulaFoto(foto, 'gerir')))
     ]) : null
   ]));
@@ -1304,16 +1243,16 @@ function pintarFila() {
   const resumo = document.getElementById('fila-resumo');
   if (resumo) {
     resumo.textContent = fila.length
-      ? `${fila.length} ${fila.length === 1 ? 'fotografia pronta' : 'fotografias prontas'} · ${peso(total)}`
-      : 'Ainda não escolheu fotografias.';
+      ? `${fila.length} ${fila.length === 1 ? 'foto' : 'fotos'} · ${peso(total)}`
+      : '';
   }
   const aviso = document.getElementById('fila-aviso');
   if (aviso) aviso.hidden = total < 200 * 1024 * 1024;
   const publicar = document.querySelector('[data-acao="publicar"]');
   if (publicar && !estado.ocupado) {
     publicar.textContent = fila.length
-      ? `Publicar ${fila.length} ${fila.length === 1 ? 'fotografia' : 'fotografias'}`
-      : 'Publicar recado';
+      ? `Publicar ${fila.length}`
+      : 'Guardar';
   }
 }
 
@@ -1343,7 +1282,7 @@ function atualizarBarra() {
   const limite = Number(estado.manifest.limiteAlbum) || 0;
   barra.classList.toggle('acima', limite > 0 && contagem.album > limite);
   const mapa = {
-    decididas: contagem.decididas + ' de ' + contagem.total + ' decididas',
+    decididas: contagem.decididas + ' de ' + contagem.total,
     gosto: String(contagem.gosto),
     nao: String(contagem.nao),
     album: limite ? contagem.album + ' de ' + limite : String(contagem.album),
@@ -1357,7 +1296,7 @@ function atualizarBarra() {
   if (linha) linha.style.width = (contagem.total ? (contagem.decididas / contagem.total) * 100 : 0) + '%';
   const extra = barra.querySelector('[data-contador="extra"]');
   if (extra) {
-    if (limite && contagem.album > limite) extra.textContent = 'Passou o número sugerido para o álbum.';
+    if (limite && contagem.album > limite) extra.textContent = 'Fotos a mais para o álbum.';
     else extra.textContent = '';
   }
   FILTROS.forEach(([id, rotulo]) => {
@@ -1375,9 +1314,7 @@ function atualizarBarra() {
   const avisoEnvio = document.querySelector('[data-contador="envio"]');
   if (avisoEnvio) {
     const porEnviar = !sel.enviadoEm || (sel.atualizado && sel.atualizado > sel.enviadoEm);
-    avisoEnvio.textContent = sel.enviadoEm && !porEnviar
-      ? 'Seleção enviada deste aparelho. Se mudar alguma coisa, envie outra vez.'
-      : 'A seleção fica guardada neste aparelho. A fotógrafa só a recebe quando a enviar.';
+    avisoEnvio.textContent = sel.enviadoEm && !porEnviar ? 'Enviado.' : '';
   }
 }
 
@@ -1386,7 +1323,7 @@ function pintarGrelha() {
   if (!grelha) return;
   const fotos = fotosVisiveis();
   if (!fotos.length) {
-    grelha.replaceChildren(el('p', { class: 'vazio-filtro', text: 'Nada neste filtro.' }));
+    grelha.replaceChildren(el('p', { class: 'vazio-filtro', text: 'Nada aqui.' }));
   } else {
     grelha.replaceChildren(...fotos.map((foto) => celulaFoto(foto, 'votar')));
   }
@@ -1402,30 +1339,25 @@ function pintarSala(ticket, manifesto, modo) {
   const app = document.getElementById('app');
   if (ticket !== pedidoNavegacao) return;
   const miolos = [
-    topo(conta, familia.nome),
+    topo(conta),
     modo === 'votar' && albunsDo(conta.utilizador, false).length > 1
-      ? el('p', { class: 'nao-imprimir' }, el('a', { href: '#/albuns', text: 'Os meus álbuns' }))
+      ? el('p', { class: 'nao-imprimir' }, el('a', { href: '#/albuns', text: 'Álbuns' }))
       : null,
-    modo === 'ver' ? el('p', { class: 'aviso-suave nao-imprimir', text: 'Está a ver a sala como o cliente a vê, sem a seleção. As marcas que lhe enviarem ficam na preparação.' }) : null,
-    modo === 'ver' ? el('p', { class: 'nao-imprimir' }, el('a', { href: '#/estudio/' + estado.galeriaId, text: 'Voltar à preparação' })) : null,
+    modo === 'ver' ? el('p', { class: 'nao-imprimir' }, el('a', { href: '#/estudio/' + estado.galeriaId, text: 'Voltar' })) : null,
     el('section', { class: 'cabeca-sala' }, [
-      el('p', { class: 'kicker', text: [manifesto.evento, familia.nome].filter(Boolean).join(' · ') }),
+      [manifesto.evento, familia.nome].filter(Boolean).join(' · ') ? el('p', { class: 'kicker', text: [manifesto.evento, familia.nome].filter(Boolean).join(' · ') }) : null,
       el('h2', { text: manifesto.titulo || familia.nome }),
       meta ? el('p', { class: 'meta-linha', text: meta }) : null,
       manifesto.mensagem ? el('p', { class: 'recado', text: manifesto.mensagem }) : null,
-      manifesto.prazo ? el('p', { class: 'legenda', text: (prazoPassou(manifesto.prazo) ? 'O prazo pedido era ' : 'Peço a seleção até ') + dataLonga(manifesto.prazo) + (prazoPassou(manifesto.prazo) ? '. Ainda pode enviar.' : '.') }) : null
+      manifesto.prazo ? el('p', { class: 'legenda', text: 'Até ' + dataLonga(manifesto.prazo) + '.' }) : null
     ])
   ];
   if (!fotos.length) {
     miolos.push(el('section', { class: 'vazio' }, [
-      el('h2', { text: 'Esta sala ainda está vazia.' }),
-      el('p', { class: 'recado', text: modo === 'ver'
-        ? 'Quando publicar as fotografias, o cliente passa a vê-las aqui.'
-        : 'Quando as fotografias forem publicadas, aparecem aqui. Pode fechar e voltar com os mesmos dados. Se acabaram de ser enviadas, espere um minuto.' }),
+      el('h2', { text: 'Ainda sem fotos.' }),
       el('div', { class: 'acoes nao-imprimir' }, [botao('atualizar', 'Atualizar', 'secundario')])
     ]));
   } else if (modo === 'votar') {
-    miolos.push(el('p', { class: 'legenda', text: 'Visto, gosto. Cruz, não gosto. Estrela, para o álbum. Toque na imagem para a ver em qualidade máxima e escrever um comentário.' }));
     miolos.push(el('div', { class: 'avanco', 'aria-hidden': 'true' }, el('span')));
     miolos.push(el('div', { class: 'filtros nao-imprimir', role: 'toolbar' }, FILTROS.map(([id, rotulo]) => el('button', {
       type: 'button',
@@ -1436,21 +1368,15 @@ function pintarSala(ticket, manifesto, modo) {
     }))));
     miolos.push(el('div', { class: 'grelha' }));
     miolos.push(el('section', { class: 'nota-geral' }, [
-      el('label', { text: 'Nota para a fotógrafa' }, el('textarea', { id: 'nota-geral', rows: '3', maxlength: '2000', 'data-acao': 'nota-geral', value: lerSelecao(estado.galeriaId).nota || '' }))
+      el('label', { text: 'Nota' }, el('textarea', { id: 'nota-geral', rows: '2', maxlength: '2000', 'data-acao': 'nota-geral', value: lerSelecao(estado.galeriaId).nota || '' }))
     ]));
     miolos.push(el('div', { class: 'barra nao-imprimir' }, [
       el('p', { class: 'contagem' }, [
-        el('span', { 'data-contador': 'decididas', text: '' }),
-        ' · gosto ',
-        el('span', { 'data-contador': 'gosto', text: '' }),
-        ' · não ',
-        el('span', { 'data-contador': 'nao', text: '' }),
-        ' · álbum ',
-        el('span', { 'data-contador': 'album', text: '' })
+        el('span', { 'data-contador': 'decididas', text: '' })
       ]),
       el('p', { class: 'legenda', 'data-contador': 'extra', text: '' }),
       el('p', { class: 'legenda', 'data-contador': 'envio', text: '' }),
-      el('div', { class: 'acoes' }, [botao('enviar-selecao', 'Enviar seleção', 'primario')])
+      el('div', { class: 'acoes' }, [botao('enviar-selecao', 'Enviar', 'primario')])
     ]));
   } else {
     miolos.push(el('div', { class: 'grelha grelha-ver' }, fotos.map((foto) => celulaFoto(foto, 'ver'))));
@@ -1469,8 +1395,7 @@ function pintarErro(texto) {
   app.replaceChildren(el('div', { class: 'pagina' }, [
     conta ? topo(conta) : null,
     el('section', { class: 'vazio' }, [
-      el('h2', { text: 'Não consegui abrir.' }),
-      el('p', { class: 'recado', text: texto }),
+      el('h2', { text: 'Não abriu.' }),
       el('div', { class: 'acoes' }, [botao('atualizar', 'Tentar outra vez', 'primario')])
     ])
   ]));
@@ -1501,7 +1426,7 @@ function abrirLuz(id, modo) {
   document.body.classList.add('travado');
   const marca = marcaDaLuz(foto.id);
   const img = el('img', { alt: foto.nome || 'Fotografia' });
-  const estadoImagem = el('p', { class: 'mudo', id: 'luz-estado', text: 'A abrir o original…' });
+  const estadoImagem = el('p', { class: 'mudo', id: 'luz-estado', text: 'A abrir…' });
   const previa = urlFoto(estado.galeriaId, foto.previa || foto.original, estado.manifest.atualizado);
   const original = urlFoto(estado.galeriaId, foto.original || foto.previa, estado.manifest.atualizado);
   img.src = previa;
@@ -1537,8 +1462,7 @@ function abrirLuz(id, modo) {
       el('div', { class: 'luz-controlos' }, controlos),
       estado.modoLuz === 'votar'
         ? el('label', { text: 'Comentário' }, el('textarea', { id: 'luz-comentario', rows: '2', maxlength: '500', 'data-acao': 'comentario', 'data-id': foto.id, value: marca.comentario || '' }))
-        : ((marca.comentario || '').trim() ? el('p', { class: 'recado', text: marca.comentario.trim() }) : null),
-      estado.modoLuz === 'votar' ? el('p', { class: 'atalhos', text: 'Setas para mudar · G gosto · N não · A álbum · Esc fechar' }) : null
+        : ((marca.comentario || '').trim() ? el('p', { class: 'recado', text: marca.comentario.trim() }) : null)
     ])
   ];
   luz.replaceChildren(...bloco.filter(Boolean));
@@ -1636,9 +1560,9 @@ function adicionarFicheiros(lista) {
     adicionados += 1;
   }
   pintarFila();
-  if (heic) toast('O HEIC não abre na sala do cliente. Exporte JPEG em qualidade máxima.');
+  if (heic) toast('HEIC não serve. Exporta em JPEG.');
   else if (recusados.length) toast('Ficaram de fora: ' + recusados.slice(0, 3).join(', '));
-  else if (!adicionados && lista.length) toast('Não encontrei fotografias JPEG, PNG ou WebP.');
+  else if (!adicionados && lista.length) toast('Não encontrei fotos.');
 }
 
 function normalizarSelecaoImportada(obj, galeriaId) {
@@ -1675,7 +1599,7 @@ async function importarFicheiro(file) {
   try {
     const sel = normalizarSelecaoImportada(obj, estado.galeriaId);
     localStorage.setItem('cc-recebida-' + estado.galeriaId, JSON.stringify(sel));
-    toast('Seleção recebida.');
+    toast('Chegou.');
     guardarRascunhoDoFormulario();
     navegar();
   } catch (erro) {
@@ -1745,7 +1669,7 @@ function marcarSelecaoEnviada(quando) {
 async function enviarSelecao() {
   const payload = exportarObjeto();
   if (!payload.resumo.decididas && !payload.resumo.comentarios && !payload.nota) {
-    const ok = await pedirConfirmacao('Ainda não marcou fotografias. Enviar mesmo assim?', 'Enviar');
+    const ok = await pedirConfirmacao('Enviar sem marcas?', 'Enviar');
     if (!ok) return;
   }
   const texto = textoResumo(payload);
@@ -1754,7 +1678,7 @@ async function enviarSelecao() {
     if (navigator.canShare && navigator.canShare({ files: [ficheiro] })) {
       await navigator.share({ title: 'Seleção', text: texto, files: [ficheiro] });
       marcarSelecaoEnviada(payload.enviadoEm);
-      toast('Seleção pronta a enviar.');
+      toast('Pronta a enviar.');
       return;
     }
   } catch (erro) {
@@ -1764,7 +1688,7 @@ async function enviarSelecao() {
   catch { /* a descarga chega na mesma */ }
   descarregar(ficheiro.name, ficheiro, 'application/json');
   marcarSelecaoEnviada(payload.enviadoEm);
-  toast('Copiei o resumo e descarreguei o ficheiro. Pode enviá-los pelo WhatsApp.');
+  toast('Copiei. O ficheiro também ficou descarregado.');
 }
 
 function descarregarCsv() {
@@ -1793,7 +1717,7 @@ async function aoPublicar() {
   const meta = lerFormulario();
   guardarRascunhoDoFormulario();
   if (!meta.titulo) {
-    toast('Escreva o título do evento.');
+    toast('Falta o nome.');
     return;
   }
   const ficheiros = filaDe(estado.galeriaId).map((item) => item.file);
@@ -1809,10 +1733,10 @@ async function aoPublicar() {
     localStorage.removeItem('cc-rascunho-' + estado.galeriaId);
     let extra = '';
     try { await gravarMetaNoCatalogo(estado.galeriaId, meta); }
-    catch { extra = ' A lista do estúdio pode demorar a mostrar o título novo.'; }
+    catch { extra = ' O nome pode demorar a aparecer na lista.'; }
     estado.ocupado = false;
     definirProgresso('');
-    toast('Publicado. O cliente pode demorar um minuto a ver as fotografias novas. Depois, peça para atualizar.' + extra);
+    toast('Publicado. O cliente vê daqui a um minuto.' + extra);
     navegar();
   } catch (erro) {
     estado.ocupado = false;
@@ -1849,7 +1773,7 @@ async function guardarToken() {
   try {
     const info = await GITHUB.pedido(`/repos/${owner}/${repo}`);
     if (info.permissions && info.permissions.push === false) {
-      throw new Error('Este código consegue ver o repositório, mas não escrever.');
+      throw new Error('Não consegui guardar.');
     }
     localStorage.setItem('cc-ligado', JSON.stringify({ fullName: info.full_name, branch: branch || info.default_branch }));
     const campo = document.getElementById('campo-token');
@@ -1891,16 +1815,16 @@ async function guardarClienteDoFormulario() {
   const utilizador = document.getElementById('form-utilizador').value.trim().toLowerCase();
   const palavraPasse = document.getElementById('form-passe').value.trim();
   const nota = document.getElementById('form-nota').value.trim().slice(0, 500);
-  if (nome.length < 2) { toast('Escreva o nome do cliente.'); return; }
-  if (!/^[a-z0-9]{3,20}$/.test(utilizador)) { toast('O utilizador só pode ter letras minúsculas e números, entre 3 e 20.'); return; }
+  if (nome.length < 2) { toast('Falta o nome.'); return; }
+  if (!/^[a-z0-9]{3,20}$/.test(utilizador)) { toast('O utilizador fica curto: letras e números, 3 a 20.'); return; }
   if ((CONFIG.contas || []).some((conta) => conta.papel === 'fotografa' && conta.utilizador === utilizador)) {
-    toast('Esse utilizador é o da fotógrafa.');
+    toast('Esse nome é o teu.');
     return;
   }
-  if (palavraPasse.length < 6) { toast('A palavra-passe precisa de pelo menos 6 caracteres.'); return; }
+  if (palavraPasse.length < 6) { toast('A passe fica curta.'); return; }
   const catalogo = clonarCatalogo();
   if (catalogo.clientes.some((conta) => conta.utilizador === utilizador && conta.utilizador !== form.original)) {
-    toast('Já existe um cliente com esse utilizador.');
+    toast('Já há alguém com esse utilizador.');
     return;
   }
   if (form.modo === 'novo') {
@@ -1924,9 +1848,7 @@ async function guardarClienteDoFormulario() {
     await gravarCatalogo(catalogo, modo === 'novo' ? 'Novo cliente ' + utilizador : 'Atualizar cliente ' + utilizador);
     estado.formulario = null;
     estado.ocupado = false;
-    toast(modo === 'novo'
-      ? 'Cliente criado. Pode demorar um minuto até conseguir entrar.'
-      : 'Cliente atualizado. Se mudou a palavra-passe, envie o recado outra vez.');
+    toast(modo === 'novo' ? 'Cliente criado.' : 'Atualizei.');
     refrescarEstudio();
   } catch (erro) {
     estado.ocupado = false;
@@ -1939,9 +1861,9 @@ async function guardarAlbumDoFormulario() {
   const titulo = document.getElementById('form-titulo').value.trim();
   const evento = document.getElementById('form-evento').value.trim();
   const cliente = document.getElementById('form-cliente')?.value || '';
-  if (!titulo) { toast('Escreva o nome do álbum.'); return; }
+  if (!titulo) { toast('Falta o nome.'); return; }
   const dono = clientes().find((conta) => conta.utilizador === cliente);
-  if (!dono) { toast('Escolha o cliente deste álbum.'); return; }
+  if (!dono) { toast('Escolhe o cliente.'); return; }
   const id = idAlbum(titulo);
   const manifesto = normalizarManifest({
     id,
@@ -1963,7 +1885,7 @@ async function guardarAlbumDoFormulario() {
     estado.formulario = null;
     estado.manifestNovo = manifesto;
     estado.ocupado = false;
-    toast('Álbum criado. Já pode largar as fotografias. O cliente pode demorar um minuto a vê-lo.');
+    toast('Álbum criado. Já podes largar as fotos.');
     if (location.hash !== '#/estudio/' + id) location.hash = '#/estudio/' + id;
     else navegar();
   } catch (erro) {
@@ -1977,7 +1899,7 @@ async function alternarCliente(utilizador, ativo) {
   const cliente = clientes().find((conta) => conta.utilizador === utilizador);
   if (!cliente) return;
   const ok = await pedirConfirmacao(
-    ativo ? `${cliente.nome} volta a conseguir entrar.` : `${cliente.nome} deixa de conseguir entrar. Os álbuns e as fotografias ficam.`,
+    ativo ? `${cliente.nome} volta a entrar.` : `${cliente.nome} deixa de entrar. As fotos ficam.`,
     ativo ? 'Reativar' : 'Desativar'
   );
   if (!ok) return;
@@ -1989,7 +1911,7 @@ async function alternarCliente(utilizador, ativo) {
   try {
     await gravarCatalogo(catalogo, (ativo ? 'Reativar ' : 'Desativar ') + utilizador);
     estado.ocupado = false;
-    toast(ativo ? 'Acesso reativado.' : 'Acesso desativado.');
+    toast(ativo ? 'Volta a entrar.' : 'Deixa de entrar.');
     refrescarEstudio();
   } catch (erro) {
     estado.ocupado = false;
@@ -2002,8 +1924,8 @@ async function retirarCliente(utilizador) {
   const cliente = clientes().find((conta) => conta.utilizador === utilizador);
   if (!cliente) return;
   const ok = await pedirConfirmacao(
-    `${cliente.nome} deixa de conseguir entrar. Os álbuns ficam no estúdio, sem cliente, e as fotografias mantêm-se.`,
-    'Retirar acesso'
+    `${cliente.nome} deixa de entrar. As fotos ficam.`,
+    'Tirar'
   );
   if (!ok) return;
   const catalogo = clonarCatalogo();
@@ -2015,7 +1937,7 @@ async function retirarCliente(utilizador) {
   try {
     await gravarCatalogo(catalogo, 'Retirar acesso de ' + utilizador);
     estado.ocupado = false;
-    toast('Acesso retirado. Os álbuns ficaram por atribuir.');
+    toast('Tirei o acesso. Os álbuns ficam aqui.');
     refrescarEstudio();
   } catch (erro) {
     estado.ocupado = false;
@@ -2028,7 +1950,7 @@ async function alternarAlbum(id, ocultar) {
   const album = albumPorId(id);
   if (!album || album.arquivado === ocultar) return;
   const ok = await pedirConfirmacao(
-    ocultar ? 'O cliente deixa de ver este álbum. As fotografias ficam no estúdio.' : 'O cliente volta a ver este álbum.',
+    ocultar ? 'O cliente deixa de ver este álbum.' : 'O cliente volta a ver este álbum.',
     ocultar ? 'Ocultar' : 'Mostrar'
   );
   if (!ok) return;
@@ -2040,7 +1962,7 @@ async function alternarAlbum(id, ocultar) {
   try {
     await gravarCatalogo(catalogo, (ocultar ? 'Ocultar ' : 'Mostrar ') + (atual.titulo || id));
     estado.ocupado = false;
-    toast(ocultar ? 'Álbum oculto para o cliente.' : 'Álbum visível outra vez.');
+    toast(ocultar ? 'Oculto.' : 'Visível outra vez.');
     refrescarEstudio();
   } catch (erro) {
     estado.ocupado = false;
@@ -2053,7 +1975,7 @@ async function atribuirAlbum(id, utilizador) {
   const album = albumPorId(id);
   if (!album || album.cliente === utilizador) return;
   const nome = utilizador ? (clientes().find((conta) => conta.utilizador === utilizador)?.nome || utilizador) : 'ninguém';
-  const ok = await pedirConfirmacao('Este álbum passa a ser de ' + nome + '.', 'Mudar');
+  const ok = await pedirConfirmacao('Passa para ' + nome + '.', 'Mudar');
   if (!ok) { refrescarEstudio(); return; }
   const catalogo = clonarCatalogo();
   const atual = catalogo.albuns.find((item) => item.id === id);
@@ -2090,7 +2012,7 @@ function aoClicar(evento) {
       ? clientes().find((conta) => conta.utilizador === utilizador)
       : contaDaGaleria(alvo.dataset.galeria || estado.galeriaId);
     if (!familia?.utilizador) {
-      toast('Este álbum ainda não tem cliente.');
+      toast('Falta o cliente.');
       return;
     }
     copiar(textoRecado(familia));
@@ -2117,7 +2039,7 @@ function aoClicar(evento) {
     return;
   }
   if (acao === 'novo-album') {
-    if (!clientes().length) { toast('Crie primeiro um cliente.'); return; }
+    if (!clientes().length) { toast('Primeiro um cliente.'); return; }
     estado.formulario = { tipo: 'album', cliente: alvo.dataset.utilizador || clientes()[0].utilizador, titulo: '', evento: '' };
     refrescarEstudio();
     return;
@@ -2169,7 +2091,7 @@ function aoClicar(evento) {
     return;
   }
   if (acao === 'limpar-selecao') {
-    pedirConfirmacao('Esquecer a seleção importada desta sala?', 'Limpar').then((ok) => {
+    pedirConfirmacao('Apagar esta escolha?', 'Limpar').then((ok) => {
       if (!ok) return;
       localStorage.removeItem('cc-recebida-' + estado.galeriaId);
       navegar();
@@ -2271,12 +2193,12 @@ function aoSubmeter(evento) {
   const conta = host || (cliente ? { ...cliente, papel: 'cliente' } : null);
   const erro = document.querySelector('.erro');
   if (cliente && cliente.ativo === false && !host) {
-    erro.textContent = 'Este acesso está desativado.';
+    erro.textContent = 'Está desativado.';
     document.getElementById('palavra-passe').focus();
     return;
   }
   if (!conta) {
-    erro.textContent = 'Não reconheço estes dados.';
+    erro.textContent = 'Não bate certo.';
     document.getElementById('palavra-passe').focus();
     return;
   }

@@ -104,12 +104,7 @@ a.marca {
 }
 
 .login-corpo {
-  display: grid;
-  grid-template-columns: minmax(260px, 420px) minmax(220px, 1fr);
-  gap: 48px 72px;
-  align-items: end;
-  padding-top: 28px;
-  border-top: 1px solid var(--linha);
+  max-width: 420px;
 }
 
 .lede {
