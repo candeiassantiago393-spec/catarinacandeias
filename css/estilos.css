@@ -35,7 +35,7 @@ body {
 
 body.travado { overflow: hidden; }
 
-button, input, textarea { font: inherit; color: inherit; }
+button, input, textarea, select { font: inherit; color: inherit; }
 
 button { cursor: pointer; }
 
@@ -132,7 +132,7 @@ label, .etiqueta {
   text-transform: uppercase;
 }
 
-input, textarea {
+input, textarea, select {
   width: 100%;
   margin-top: 4px;
   padding: 10px 0;
@@ -251,9 +251,17 @@ button.texto.ligado,
 }
 
 .ligacao {
-  margin: 8px 0 36px;
+  margin: 28px 0 12px;
   padding: 18px 0 8px;
   border-top: 1px solid var(--linha);
+}
+
+.ligacao summary {
+  cursor: pointer;
+  color: var(--mudo);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 .ligacao.compacta { margin-top: 0; }
@@ -291,6 +299,72 @@ button.texto.ligado,
   color: var(--fraco);
   font-family: ui-monospace, Consolas, monospace;
   font-size: 13px;
+}
+
+.cliente-bloco {
+  padding: 28px 0 6px;
+  border-top: 1px solid var(--linha);
+}
+
+.cliente-bloco h3 {
+  font-family: var(--serif);
+  font-size: clamp(32px, 5vw, 44px);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.cliente-bloco.desativado { opacity: 0.62; }
+
+.cliente-bloco .acoes { margin-top: 10px; }
+
+.albuns-cliente { margin-top: 8px; }
+
+.album-linha {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 20px;
+  align-items: end;
+  padding: 16px 0;
+  border-top: 1px solid var(--linha);
+}
+
+.album-linha h3 {
+  font-family: var(--serif);
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+.album-linha .sub { margin-top: 4px; color: var(--mudo); }
+
+.album-linha.oculto h3 { color: var(--mudo); }
+
+.select-cliente {
+  max-width: 280px;
+  margin-top: 8px;
+}
+
+select {
+  color-scheme: dark;
+  border: 0;
+  border-bottom: 1px solid var(--linha);
+  border-radius: 0;
+}
+
+.painel-form {
+  margin: 8px 0 28px;
+  padding: 8px 0 4px;
+  border-top: 1px solid var(--linha);
+}
+
+.painel-form h3 {
+  font-family: var(--serif);
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1;
 }
 
 .lado {
@@ -664,7 +738,8 @@ button.moldura img,
   .login-corpo,
   .passos,
   .duas,
-  .sala-linha { grid-template-columns: 1fr; }
+  .sala-linha,
+  .album-linha { grid-template-columns: 1fr; }
   .lado { justify-content: flex-start; }
   .grelha { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 }

@@ -25,7 +25,11 @@ const estado = {
   luzId: null,
   modoLuz: 'ver',
   ocupado: false,
-  progresso: ''
+  progresso: '',
+  catalogo: null,
+  formulario: null,
+  manifestos: null,
+  manifestNovo: null
 };
 
 const filas = {};
@@ -155,18 +159,208 @@ function mensagemErro(erro) {
   return texto;
 }
 
-function familias() {
-  return CONFIG.contas.filter((conta) => conta.papel === 'cliente');
+function catalogoInicial() {
+  const contas = (CONFIG.contas || []).filter((conta) => conta.papel === 'cliente' && conta.galeria);
+  return {
+    clientes: contas.map((conta) => ({
+      utilizador: conta.utilizador,
+      palavraPasse: conta.palavraPasse,
+      nome: conta.nome,
+      ativo: true,
+      nota: ''
+    })),
+    albuns: contas.map((conta) => ({
+      id: conta.galeria,
+      cliente: conta.utilizador,
+      arquivado: false,
+      titulo: '',
+      evento: ''
+    }))
+  };
+}
+
+function normalizarCatalogo(dados) {
+  const clientes = [];
+  const vistos = new Set();
+  for (const item of (Array.isArray(dados?.clientes) ? dados.clientes : [])) {
+    const utilizador = String(item?.utilizador || '').trim().toLowerCase();
+    if (!/^[a-z0-9]{3,20}$/.test(utilizador) || vistos.has(utilizador)) continue;
+    if ((CONFIG.contas || []).some((conta) => conta.papel === 'fotografa' && conta.utilizador === utilizador)) continue;
+    vistos.add(utilizador);
+    clientes.push({
+      utilizador,
+      palavraPasse: String(item.palavraPasse || ''),
+      nome: String(item.nome || utilizador).trim() || utilizador,
+      ativo: item.ativo !== false,
+      nota: String(item.nota || '').slice(0, 500)
+    });
+  }
+  const albuns = [];
+  const ids = new Set();
+  for (const item of (Array.isArray(dados?.albuns) ? dados.albuns : [])) {
+    const id = String(item?.id || '').trim();
+    if (!nomeValido(id) || ids.has(id)) continue;
+    ids.add(id);
+    const cliente = String(item.cliente || '').trim().toLowerCase();
+    albuns.push({
+      id,
+      cliente: clientes.some((conta) => conta.utilizador === cliente) ? cliente : '',
+      arquivado: !!item.arquivado,
+      titulo: String(item.titulo || '').slice(0, 120),
+      evento: String(item.evento || '').slice(0, 80)
+    });
+  }
+  return { clientes, albuns };
+}
+
+async function obterCatalogo() {
+  try {
+    const resposta = await fetch(new URL('dados/estudio.json', document.baseURI), { cache: 'no-store' });
+    if (!resposta.ok) return catalogoInicial();
+    return normalizarCatalogo(await resposta.json());
+  } catch {
+    return catalogoInicial();
+  }
+}
+
+function clientes() {
+  return estado.catalogo?.clientes || [];
+}
+
+function albunsVisiveis() {
+  return estado.catalogo?.albuns || [];
+}
+
+function albunsDo(utilizador, incluirOcultos) {
+  return albunsVisiveis().filter((album) => album.cliente === utilizador && (incluirOcultos || !album.arquivado));
+}
+
+function albumPorId(id) {
+  return albunsVisiveis().find((album) => album.id === id) || null;
+}
+
+function clonarCatalogo() {
+  return JSON.parse(JSON.stringify(estado.catalogo || catalogoInicial()));
+}
+
+function contaFotografa() {
+  return (CONFIG.contas || []).find((conta) => conta.papel === 'fotografa') || null;
 }
 
 function sessao() {
   const guardada = jsonSeguro('cc-sessao');
   if (!guardada?.utilizador) return null;
-  return CONFIG.contas.find((conta) => conta.utilizador === guardada.utilizador) || null;
+  const host = (CONFIG.contas || []).find((conta) => conta.papel === 'fotografa' && conta.utilizador === guardada.utilizador);
+  if (host) return host;
+  const cliente = clientes().find((conta) => conta.utilizador === guardada.utilizador && conta.ativo !== false);
+  if (!cliente) return null;
+  return { ...cliente, papel: 'cliente' };
 }
 
 function contaDaGaleria(id) {
-  return familias().find((conta) => conta.galeria === id) || null;
+  const album = albumPorId(id);
+  if (!album) return null;
+  const cliente = clientes().find((conta) => conta.utilizador === album.cliente);
+  if (cliente) return { ...cliente, papel: 'cliente', galeria: id };
+  return { utilizador: '', palavraPasse: '', nome: 'Por atribuir', papel: 'cliente', galeria: id, ativo: true };
+}
+
+function clientePodeVer(conta, id) {
+  const album = albumPorId(id);
+  return !!(album && conta && album.cliente === conta.utilizador && !album.arquivado);
+}
+
+function destinoCliente(conta) {
+  const lista = albunsDo(conta.utilizador, false);
+  if (lista.length === 1) return '#/sala/' + lista[0].id;
+  return '#/albuns';
+}
+
+function mensagemPadrao(nome) {
+  return `Olá, ${nome}. O visto fica nas fotografias que querem guardar, a cruz nas que podem dispensar. A estrela marca as que querem destacar. Podem escrever em qualquer imagem. No fim, enviem a seleção pelo botão em baixo.`;
+}
+
+function palavraPasseNova() {
+  const partes = ['Mar', 'Sol', 'Rio', 'Luz', 'Mel', 'Vela', 'Norte', 'Oliva', 'Bruma', 'Duna', 'Campo', 'Serra'];
+  const n = (max) => {
+    if (window.crypto?.getRandomValues) {
+      const bytes = new Uint8Array(1);
+      crypto.getRandomValues(bytes);
+      return bytes[0] % max;
+    }
+    return Math.floor(Math.random() * max);
+  };
+  const a = partes[n(partes.length)];
+  let b = partes[n(partes.length)];
+  if (b === a) b = partes[(partes.indexOf(a) + 3) % partes.length];
+  return a + b + String(10 + n(89));
+}
+
+function utilizadorLivre(nome) {
+  const reservados = new Set((CONFIG.contas || []).filter((conta) => conta.papel === 'fotografa').map((conta) => conta.utilizador));
+  for (const conta of clientes()) reservados.add(conta.utilizador);
+  let base = String(nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16);
+  if (base.length < 3) base = 'cliente';
+  let candidato = base;
+  let i = 2;
+  while (reservados.has(candidato)) {
+    candidato = (base + i).slice(0, 20);
+    i += 1;
+    if (i > 40) return 'cliente' + novoId().slice(0, 4);
+  }
+  return candidato;
+}
+
+function idAlbum(titulo) {
+  const usados = new Set(albunsVisiveis().map((album) => album.id));
+  const base = String(titulo || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 28);
+  for (let i = 0; i < 6; i += 1) {
+    const id = (base || 'album') + '-' + novoId().slice(0, 4);
+    if (nomeValido(id) && !usados.has(id)) return id;
+  }
+  return 'album-' + novoId();
+}
+
+function tituloAlbum(album, manifesto) {
+  return manifesto?.titulo || album.titulo || 'Álbum por nomear';
+}
+
+async function commitJson(ficheiros, mensagem) {
+  const repo = repositorio();
+  if (!nomeValido(repo.owner) || !nomeValido(repo.repo) || (repo.branch && !nomeValido(repo.branch))) {
+    throw new Error('Neste computador ainda falta a ligação inicial. Quem montou o site trata disso uma vez. Depois, a fotógrafa só larga as fotografias.');
+  }
+  if (!GITHUB.token()) {
+    throw new Error('Neste computador ainda falta a ligação inicial. Quem montou o site trata disso uma vez. Depois, a fotógrafa só larga as fotografias.');
+  }
+  const info = await GITHUB.pedido(`/repos/${repo.owner}/${repo.repo}`);
+  if (info.permissions && info.permissions.push === false) {
+    throw new Error('Este código consegue ver o repositório, mas não escrever.');
+  }
+  const branch = repo.branch || info.default_branch;
+  const tree = [];
+  for (const ficheiro of ficheiros) {
+    const blob = new Blob([JSON.stringify(ficheiro.dados, null, 2) + '\n'], { type: 'application/json' });
+    const sha = await GITHUB.criarBlob(repo.owner, repo.repo, await blobBase64(blob));
+    tree.push({ path: ficheiro.caminho, mode: '100644', type: 'blob', sha });
+  }
+  await GITHUB.commit(repo.owner, repo.repo, branch, tree, mensagem);
+}
+
+async function gravarCatalogo(catalogo, mensagem) {
+  await commitJson([{ caminho: 'dados/estudio.json', dados: catalogo }], mensagem);
+  estado.catalogo = catalogo;
+}
+
+async function gravarMetaNoCatalogo(id, meta) {
+  const atual = albumPorId(id);
+  if (!atual || (atual.titulo === meta.titulo && atual.evento === meta.evento)) return;
+  const catalogo = clonarCatalogo();
+  const album = catalogo.albuns.find((item) => item.id === id);
+  if (!album) return;
+  album.titulo = meta.titulo;
+  album.evento = meta.evento;
+  await gravarCatalogo(catalogo, 'Atualizar ' + (meta.titulo || id));
 }
 
 function detetarAutomatico() {
@@ -233,6 +427,29 @@ async function carregarManifest(id) {
   const resposta = await fetch(new URL(`galerias/${id}/manifest.json`, document.baseURI), { cache: 'no-store' });
   if (!resposta.ok) throw new Error('Não encontrei a sala.');
   return normalizarManifest(await resposta.json(), id);
+}
+
+async function carregarManifestOuVazio(id) {
+  if (estado.manifestNovo?.id === id) {
+    const manifesto = estado.manifestNovo;
+    estado.manifestNovo = null;
+    return manifesto;
+  }
+  try {
+    return await carregarManifest(id);
+  } catch (erro) {
+    const album = albumPorId(id);
+    if (!album || !/Não encontrei a sala/.test(erro?.message || '')) throw erro;
+    const dono = clientes().find((conta) => conta.utilizador === album.cliente);
+    return normalizarManifest({
+      id,
+      titulo: album.titulo || '',
+      evento: album.evento || '',
+      limiteAlbum: 0,
+      mensagem: dono ? mensagemPadrao(dono.nome) : '',
+      fotos: []
+    }, id);
+  }
 }
 
 function selecaoVazia(id) {
@@ -321,7 +538,7 @@ function numeroDe(foto) {
 
 function textoRecado(conta) {
   const endereco = urlDoSite() || 'o endereço do site';
-  return [
+  const linhas = [
     `Olá, ${conta.nome}.`,
     '',
     'As fotografias já estão prontas para verem:',
@@ -329,9 +546,14 @@ function textoRecado(conta) {
     '',
     `Utilizador: ${conta.utilizador}`,
     `Palavra-passe: ${conta.palavraPasse}`,
-    '',
-    'Entrem e marquem com o visto as que gostam e com a cruz as que não querem. A estrela é para o álbum. Podem deixar comentários. No fim, carreguem em «Enviar seleção».'
-  ].join('\n');
+    ''
+  ];
+  if (albunsDo(conta.utilizador, false).length > 1) {
+    linhas.push('Há mais do que um trabalho. Depois de entrar, escolham o álbum.');
+    linhas.push('');
+  }
+  linhas.push('Entrem e marquem com o visto as que gostam e com a cruz as que não querem. A estrela é para o álbum. Podem deixar comentários. No fim, carreguem em «Enviar seleção».');
+  return linhas.join('\n');
 }
 
 async function copiar(texto) {
@@ -543,7 +765,7 @@ async function publicarSala(galeriaId, ficheiros, meta, onLote) {
     throw new Error('Falta o utilizador ou o nome do repositório no GitHub.');
   }
   if (repo.branch && !nomeValido(repo.branch)) throw new Error('O nome do ramo não serve.');
-  if (!GITHUB.token()) throw new Error('Falta o código do GitHub. Ligue-o no estúdio.');
+  if (!GITHUB.token()) throw new Error('Neste computador ainda falta a ligação inicial. Quem montou o site trata disso uma vez. Depois, a fotógrafa só larga as fotografias.');
 
   const info = await GITHUB.pedido(`/repos/${repo.owner}/${repo.repo}`);
   if (info.permissions && info.permissions.push === false) {
@@ -658,7 +880,7 @@ async function removerFotoPublicada(foto) {
 }
 
 function topo(conta, kicker) {
-  const destino = conta.papel === 'fotografa' ? '#/estudio' : '#/sala/' + conta.galeria;
+  const destino = conta.papel === 'fotografa' ? '#/estudio' : destinoCliente(conta);
   return el('header', { class: 'topo' }, [
     el('div', {}, [
       el('a', { class: 'marca', href: destino, text: CONFIG.nome }),
@@ -696,20 +918,25 @@ function blocoLigacao(compacto) {
   const repo = repositorio();
   const ligado = jsonSeguro('cc-ligado');
   const temToken = !!GITHUB.token();
-  return el('section', { class: compacto ? 'ligacao compacta nao-imprimir' : 'ligacao nao-imprimir' }, [
-    el('p', { class: 'etiqueta', text: 'Ligar o GitHub' }),
+  if (compacto) {
+    if (temToken) return null;
+    return el('p', { class: 'aviso-suave nao-imprimir', text: 'Neste computador ainda falta a ligação inicial. Quem montou o site trata disso uma vez, no fundo do estúdio. A fotógrafa depois só larga as fotografias.' });
+  }
+  return el('details', { class: 'ligacao nao-imprimir', open: temToken ? null : true }, [
+    el('summary', { text: temToken ? 'Ligação inicial feita neste computador' : 'Ligação inicial do site, uma vez' }),
+    el('p', { class: 'sub', text: 'Isto não é trabalho da fotógrafa. Quem montou o site cola aqui um código, uma vez, neste computador. A partir daí ela entra, abre o álbum e larga as fotografias.' }),
     temToken
-      ? el('p', { class: 'sub', text: 'Ligado a ' + ((ligado && ligado.fullName) || (repo.owner + '/' + repo.repo)) + '. O código fica só neste computador.' })
-      : el('p', { class: 'aviso-suave', text: 'Sem esta ligação, o cliente não vê as fotografias. Crie um token só deste repositório, com Contents em leitura e escrita. O GitHub mostra-o uma vez. Cole-o aqui — não fica gravado no site.' }),
+      ? el('p', { class: 'sub', text: 'Ligado a ' + ((ligado && ligado.fullName) || (repo.owner + '/' + repo.repo)) + '.' })
+      : el('p', { class: 'aviso-suave', text: 'O código é só deste repositório, com Contents em leitura e escrita. O GitHub mostra-o uma vez. Não fica gravado no site.' }),
     el('p', { class: 'aviso-suave' }, [
-      el('a', { href: 'https://github.com/settings/personal-access-tokens/new', target: '_blank', rel: 'noopener noreferrer', text: 'Criar o código no GitHub' })
+      el('a', { href: 'https://github.com/settings/personal-access-tokens/new', target: '_blank', rel: 'noopener noreferrer', text: 'Criar o código' })
     ]),
     el('div', { class: 'duas' }, [
       campoTexto('campo-owner', 'Utilizador GitHub', repo.owner, { autocomplete: 'off', spellcheck: 'false' }),
       campoTexto('campo-repo', 'Repositório', repo.repo, { autocomplete: 'off', spellcheck: 'false' })
     ]),
     campoTexto('campo-branch', 'Ramo, se não for o principal', repo.branch, { placeholder: 'main', autocomplete: 'off', spellcheck: 'false' }),
-    el('label', { text: 'Código do GitHub' }, el('input', { id: 'campo-token', type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: temToken ? 'Já está guardado. Cole outro para substituir.' : 'github_pat_…' })),
+    el('label', { text: 'Código' }, el('input', { id: 'campo-token', type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: temToken ? 'Já está guardado. Cole outro para substituir.' : 'github_pat_…' })),
     el('div', { class: 'acoes' }, [
       botao('guardar-token', temToken ? 'Testar outra vez' : 'Guardar e testar', 'primario'),
       temToken ? botao('esquecer-token', 'Esquecer o código', 'texto perigo') : null
@@ -717,27 +944,114 @@ function blocoLigacao(compacto) {
   ]);
 }
 
+function selectCliente(album) {
+  const select = el('select', { 'data-acao': 'atribuir-album', 'data-id': album.id, 'aria-label': 'Cliente deste álbum' });
+  select.append(el('option', { value: '', text: 'Por atribuir' }));
+  for (const cliente of clientes()) {
+    select.append(el('option', { value: cliente.utilizador, text: cliente.nome + (cliente.ativo === false ? ' · desativado' : '') }));
+  }
+  select.value = album.cliente || '';
+  return el('label', { class: 'select-cliente', text: 'Cliente' }, select);
+}
+
+function linhaAlbum(album, manifesto) {
+  const fotos = manifesto ? fotosUteis(manifesto).length : null;
+  const recebida = lerRecebida(album.id);
+  let detalhe = 'Ainda a chegar ao site. Atualize daqui a um minuto.';
+  if (manifesto) {
+    detalhe = fotos === 0 ? 'Ainda sem fotografias' : `${fotos} ${fotos === 1 ? 'fotografia' : 'fotografias'}`;
+    if (manifesto.prazo) detalhe += ' · até ' + dataLonga(manifesto.prazo);
+  }
+  return el('article', { class: 'album-linha' + (album.arquivado ? ' oculto' : '') }, [
+    el('div', {}, [
+      el('p', { class: 'kicker', text: album.arquivado ? 'Oculto para o cliente' : (manifesto?.evento || album.evento || 'Álbum') }),
+      el('h3', { text: tituloAlbum(album, manifesto) }),
+      el('p', { class: 'sub', text: detalhe }),
+      recebida ? el('p', { class: 'sub', text: 'Seleção recebida' + (recebida.recebidoEm ? ' · ' + dataCurta(recebida.recebidoEm) : '') }) : null,
+      selectCliente(album)
+    ]),
+    el('div', { class: 'lado nao-imprimir' }, [
+      el('a', { class: 'secundario', href: '#/estudio/' + album.id, text: 'Preparar' }),
+      el('a', { class: 'texto', href: '#/sala/' + album.id, text: 'Ver sala' }),
+      botao(album.arquivado ? 'mostrar-album' : 'ocultar-album', album.arquivado ? 'Mostrar' : 'Ocultar', 'texto', { 'data-id': album.id })
+    ])
+  ]);
+}
+
+function painelFormulario() {
+  const form = estado.formulario;
+  if (!form) return null;
+  if (form.tipo === 'cliente') {
+    return el('section', { class: 'painel-form', id: 'painel-form' }, [
+      el('h3', { text: form.modo === 'novo' ? 'Novo cliente' : 'Editar cliente' }),
+      el('p', { class: 'sub', text: 'Isto fica gravado no site. O cliente só entra noutro aparelho depois de guardar.' }),
+      campoTexto('form-nome', 'Nome', form.nome, { autocomplete: 'off', maxlength: '80' }),
+      campoTexto('form-utilizador', 'Utilizador', form.utilizador, { autocomplete: 'off', spellcheck: 'false', maxlength: '20', 'data-auto': form.modo === 'novo' ? '1' : '0' }),
+      campoTexto('form-passe', 'Palavra-passe', form.palavraPasse, { autocomplete: 'off', spellcheck: 'false', maxlength: '80' }),
+      el('label', { text: 'Nota interna' }, el('textarea', { id: 'form-nota', rows: '2', maxlength: '500', value: form.nota || '' })),
+      el('p', { class: 'aviso-suave', text: 'A nota fica só no estúdio. O cliente não a vê.' }),
+      el('div', { class: 'acoes' }, [
+        botao('guardar-cliente', 'Guardar no site', 'primario'),
+        botao('nova-passe', 'Gerar outra palavra-passe', 'texto'),
+        botao('cancelar-form', 'Cancelar', 'texto')
+      ])
+    ]);
+  }
+  if (form.tipo === 'album') {
+    const select = el('select', { id: 'form-cliente', 'aria-label': 'Cliente do álbum' });
+    for (const cliente of clientes()) {
+      select.append(el('option', { value: cliente.utilizador, text: cliente.nome + (cliente.ativo === false ? ' · desativado' : '') }));
+    }
+    select.value = form.cliente || (clientes()[0]?.utilizador || '');
+    return el('section', { class: 'painel-form', id: 'painel-form' }, [
+      el('h3', { text: 'Novo álbum' }),
+      el('p', { class: 'sub', text: 'Cada álbum é uma sala. O mesmo cliente pode ter várias: casamento, sessão, retrato, o que for.' }),
+      campoTexto('form-titulo', 'Nome do álbum', form.titulo, { autocomplete: 'off', maxlength: '120', placeholder: 'Casamento, sessão, retrato…' }),
+      campoTexto('form-evento', 'Tipo de trabalho', form.evento, { autocomplete: 'off', maxlength: '80', placeholder: 'Casamento, batizado, família…' }),
+      clientes().length ? el('label', { text: 'Cliente' }, select) : el('p', { class: 'aviso-suave', text: 'Crie primeiro um cliente.' }),
+      el('div', { class: 'acoes' }, [
+        clientes().length ? botao('guardar-album', 'Criar álbum', 'primario') : null,
+        botao('cancelar-form', 'Cancelar', 'texto')
+      ])
+    ]);
+  }
+  return null;
+}
+
 function pintarEstudio(ticket, manifestos) {
   const conta = sessao();
   document.title = 'Estúdio — ' + CONFIG.nome;
   const lista = el('div', { class: 'salas' });
-  for (const familia of familias()) {
-    const manifesto = manifestos[familia.galeria];
-    const recebida = lerRecebida(familia.galeria);
-    const fotos = manifesto ? fotosUteis(manifesto).length : 0;
-    lista.append(el('article', { class: 'sala-linha' }, [
-      el('div', {}, [
-        el('p', { class: 'kicker', text: manifesto?.evento || 'Sala' }),
-        el('h3', { text: manifesto?.titulo || familia.nome }),
-        el('p', { class: 'sub', text: manifesto ? `${fotos} ${fotos === 1 ? 'fotografia' : 'fotografias'}` + (manifesto.prazo ? ' · até ' + dataLonga(manifesto.prazo) : '') : 'Não consegui ler esta sala.' }),
-        el('p', { class: 'credenciais', text: familia.utilizador + '  ·  ' + familia.palavraPasse }),
-        recebida ? el('p', { class: 'sub', text: 'Seleção recebida' + (recebida.recebidoEm ? ' · ' + dataCurta(recebida.recebidoEm) : '') }) : null
+  const ordenados = clientes().slice().sort((a, b) => Number(a.ativo === false) - Number(b.ativo === false) || a.nome.localeCompare(b.nome, 'pt'));
+  if (!ordenados.length) {
+    lista.append(el('p', { class: 'sub', text: 'Ainda não há clientes. Crie o primeiro e depois o álbum.' }));
+  }
+  for (const cliente of ordenados) {
+    const albuns = albunsVisiveis().filter((album) => album.cliente === cliente.utilizador);
+    lista.append(el('section', { class: 'cliente-bloco' + (cliente.ativo === false ? ' desativado' : '') }, [
+      el('p', { class: 'kicker', text: cliente.ativo === false ? 'Acesso desativado' : 'Cliente' }),
+      el('h3', { text: cliente.nome }),
+      el('p', { class: 'credenciais', text: cliente.utilizador + '  ·  ' + cliente.palavraPasse }),
+      cliente.nota ? el('p', { class: 'sub', text: cliente.nota }) : null,
+      el('div', { class: 'acoes nao-imprimir' }, [
+        botao('copiar-recado', 'Copiar recado', 'texto', { 'data-utilizador': cliente.utilizador }),
+        botao('editar-cliente', 'Editar', 'texto', { 'data-utilizador': cliente.utilizador }),
+        botao('novo-album', 'Novo álbum', 'texto', { 'data-utilizador': cliente.utilizador }),
+        botao(cliente.ativo === false ? 'reativar-cliente' : 'desativar-cliente', cliente.ativo === false ? 'Reativar' : 'Desativar', 'texto', { 'data-utilizador': cliente.utilizador }),
+        botao('retirar-cliente', 'Retirar acesso', 'texto perigo', { 'data-utilizador': cliente.utilizador })
       ]),
-      el('div', { class: 'lado nao-imprimir' }, [
-        botao('copiar-recado', 'Copiar recado', 'texto', { 'data-galeria': familia.galeria }),
-        el('a', { class: 'secundario', href: '#/estudio/' + familia.galeria, text: 'Preparar' }),
-        el('a', { class: 'texto', href: '#/sala/' + familia.galeria, text: 'Ver sala' })
-      ])
+      albuns.length
+        ? el('div', { class: 'albuns-cliente' }, albuns.map((album) => linhaAlbum(album, manifestos[album.id])))
+        : el('p', { class: 'sub', text: 'Ainda sem álbum.' })
+    ]));
+  }
+  const soltos = albunsVisiveis().filter((album) => !album.cliente);
+  if (soltos.length) {
+    lista.append(el('section', { class: 'cliente-bloco' }, [
+      el('p', { class: 'kicker', text: 'Sem cliente' }),
+      el('h3', { text: 'Álbuns por atribuir' }),
+      el('p', { class: 'sub', text: 'As fotografias mantêm-se. Escolha um cliente em cada um.' }),
+      el('div', { class: 'albuns-cliente' }, soltos.map((album) => linhaAlbum(album, manifestos[album.id])))
     ]));
   }
   const app = document.getElementById('app');
@@ -745,17 +1059,57 @@ function pintarEstudio(ticket, manifestos) {
   app.replaceChildren(el('div', { class: 'pagina' }, [
     topo(conta, 'Estúdio'),
     el('section', { class: 'intro' }, [
-      el('h2', { text: 'Cinco salas, um cliente em cada.' }),
+      el('h2', { text: 'Os clientes e os álbuns.' }),
       el('ol', { class: 'passos' }, [
-        el('li', {}, [el('strong', { text: '01' }), 'Ligue o GitHub uma vez, neste computador.']),
-        el('li', {}, [el('strong', { text: '02' }), 'Abra a sala, escreva o trabalho e largue as fotografias.']),
+        el('li', {}, [el('strong', { text: '01' }), 'Crie o cliente e, nele, um álbum para cada trabalho.']),
+        el('li', {}, [el('strong', { text: '02' }), 'Abra o álbum, escreva o trabalho e largue as fotografias.']),
         el('li', {}, [el('strong', { text: '03' }), 'Copie o recado e envie-o ao cliente.']),
-        el('li', {}, [el('strong', { text: '04' }), 'Quando devolverem o ficheiro, importe-o nessa sala.'])
+        el('li', {}, [el('strong', { text: '04' }), 'Quando devolverem o ficheiro, importe-o nesse álbum.'])
       ]),
-      el('p', { class: 'aviso-suave', text: 'A palavra-passe separa os clientes. No plano gratuito do GitHub o site é público: serve para entregar um trabalho, não para material que tenha de ficar secreto. Para mudar os acessos, edite js/config.js.' })
+      el('p', { class: 'aviso-suave', text: 'A palavra-passe separa os clientes. No plano gratuito do GitHub o site é público: serve para entregar um trabalho, não para material que tenha de ficar secreto. Clientes, palavras-passe e álbuns mudam-se aqui e ficam no site.' })
     ]),
-    blocoLigacao(false),
-    lista
+    el('div', { class: 'acoes nao-imprimir' }, [
+      botao('novo-cliente', 'Novo cliente', 'primario'),
+      botao('novo-album', 'Novo álbum', 'secundario')
+    ]),
+    painelFormulario(),
+    lista,
+    blocoLigacao(false)
+  ]));
+  document.getElementById('painel-form')?.scrollIntoView({ block: 'start' });
+  document.getElementById('form-nome')?.focus();
+  document.getElementById('form-titulo')?.focus();
+}
+
+function pintarAlbunsCliente(ticket) {
+  const conta = sessao();
+  const lista = albunsDo(conta.utilizador, false);
+  document.title = 'Álbuns — ' + CONFIG.nome;
+  const app = document.getElementById('app');
+  if (ticket !== pedidoNavegacao) return;
+  const blocos = lista.map((album) => {
+    const manifesto = estado.manifestos?.[album.id];
+    const fotos = manifesto ? fotosUteis(manifesto).length : null;
+    return el('article', { class: 'sala-linha' }, [
+      el('div', {}, [
+        el('p', { class: 'kicker', text: manifesto?.evento || album.evento || 'Álbum' }),
+        el('h3', { text: tituloAlbum(album, manifesto) }),
+        el('p', { class: 'sub', text: fotos == null ? 'Ainda a chegar. Atualize daqui a um minuto.' : (fotos === 0 ? 'Ainda sem fotografias' : `${fotos} ${fotos === 1 ? 'fotografia' : 'fotografias'}`) })
+      ]),
+      el('div', { class: 'lado' }, [
+        el('a', { class: 'primario', href: '#/sala/' + album.id, text: 'Abrir' })
+      ])
+    ]);
+  });
+  app.replaceChildren(el('div', { class: 'pagina' }, [
+    topo(conta, 'Os seus álbuns'),
+    el('section', { class: 'intro' }, [
+      el('h2', { text: lista.length ? 'Escolha o trabalho.' : 'Ainda não há álbuns.' }),
+      el('p', { class: 'lede', text: lista.length
+        ? 'Cada trabalho tem a sua sala. O visto, a cruz e a estrela ficam nesse álbum.'
+        : 'Quando houver um álbum para si, aparece aqui. Se acabou de ser criado, espere um minuto e atualize.' })
+    ]),
+    lista.length ? el('div', { class: 'salas' }, blocos) : el('div', { class: 'acoes' }, [botao('atualizar', 'Atualizar', 'secundario')])
   ]));
 }
 
@@ -867,7 +1221,7 @@ function blocoRecebida(manifesto) {
 
 function pintarPreparar(ticket, manifesto) {
   const conta = sessao();
-  const familia = contaDaGaleria(estado.galeriaId);
+  const familia = contaDaGaleria(estado.galeriaId) || { nome: 'Sala', galeria: estado.galeriaId, utilizador: '', palavraPasse: '' };
   const form = aplicarRascunho(manifesto, lerRascunho(estado.galeriaId));
   document.title = (form.titulo || familia.nome) + ' — preparar';
   const fila = filaDe(estado.galeriaId);
@@ -879,7 +1233,7 @@ function pintarPreparar(ticket, manifesto) {
     el('section', { class: 'cabeca-sala' }, [
       el('p', { class: 'kicker', text: familia.nome }),
       el('h2', { text: form.titulo || 'Nova sala' }),
-      el('p', { class: 'credenciais', text: familia.utilizador + '  ·  ' + familia.palavraPasse }),
+      familia.utilizador ? el('p', { class: 'credenciais', text: familia.utilizador + '  ·  ' + familia.palavraPasse }) : el('p', { class: 'sub', text: 'Este álbum ainda não tem cliente. Atribua um no estúdio para ele poder entrar.' }),
       el('div', { class: 'acoes nao-imprimir' }, [
         botao('copiar-recado', 'Copiar recado de acesso', 'secundario', { 'data-galeria': familia.galeria }),
         el('a', { class: 'texto', href: '#/sala/' + familia.galeria, text: 'Ver como o cliente' })
@@ -1041,7 +1395,7 @@ function pintarGrelha() {
 
 function pintarSala(ticket, manifesto, modo) {
   const conta = sessao();
-  const familia = contaDaGaleria(estado.galeriaId);
+  const familia = contaDaGaleria(estado.galeriaId) || { nome: 'Sala', galeria: estado.galeriaId, utilizador: '', palavraPasse: '' };
   document.title = (manifesto.titulo || familia.nome) + ' — ' + CONFIG.nome;
   const fotos = fotosUteis(manifesto);
   const meta = [dataLonga(manifesto.data), manifesto.local].filter(Boolean).join(' · ');
@@ -1049,6 +1403,9 @@ function pintarSala(ticket, manifesto, modo) {
   if (ticket !== pedidoNavegacao) return;
   const miolos = [
     topo(conta, familia.nome),
+    modo === 'votar' && albunsDo(conta.utilizador, false).length > 1
+      ? el('p', { class: 'nao-imprimir' }, el('a', { href: '#/albuns', text: 'Os meus álbuns' }))
+      : null,
     modo === 'ver' ? el('p', { class: 'aviso-suave nao-imprimir', text: 'Está a ver a sala como o cliente a vê, sem a seleção. As marcas que lhe enviarem ficam na preparação.' }) : null,
     modo === 'ver' ? el('p', { class: 'nao-imprimir' }, el('a', { href: '#/estudio/' + estado.galeriaId, text: 'Voltar à preparação' })) : null,
     el('section', { class: 'cabeca-sala' }, [
@@ -1328,7 +1685,7 @@ async function importarFicheiro(file) {
 
 function exportarObjeto() {
   const sel = lerSelecao(estado.galeriaId);
-  const familia = contaDaGaleria(estado.galeriaId);
+  const familia = contaDaGaleria(estado.galeriaId) || { nome: 'Sala', galeria: estado.galeriaId, utilizador: '', palavraPasse: '' };
   const fotos = {};
   for (const [id, valor] of Object.entries(sel.fotos)) {
     if (!valor.voto && !valor.album && !(valor.comentario || '').trim()) continue;
@@ -1450,9 +1807,12 @@ async function aoPublicar() {
       pintarFila();
     });
     localStorage.removeItem('cc-rascunho-' + estado.galeriaId);
+    let extra = '';
+    try { await gravarMetaNoCatalogo(estado.galeriaId, meta); }
+    catch { extra = ' A lista do estúdio pode demorar a mostrar o título novo.'; }
     estado.ocupado = false;
     definirProgresso('');
-    toast('Publicado. O cliente pode demorar um minuto a ver as fotografias novas. Depois, peça para atualizar.');
+    toast('Publicado. O cliente pode demorar um minuto a ver as fotografias novas. Depois, peça para atualizar.' + extra);
     navegar();
   } catch (erro) {
     estado.ocupado = false;
@@ -1516,6 +1876,202 @@ function receberLargados(lista) {
   if (jsons[0]) importarFicheiro(jsons[0]);
 }
 
+function refrescarEstudio() {
+  if (estado.manifestos && (location.hash === '#/estudio' || location.hash === '#/estudio/')) {
+    pintarEstudio(pedidoNavegacao, estado.manifestos);
+    return;
+  }
+  navegar();
+}
+
+async function guardarClienteDoFormulario() {
+  if (estado.ocupado || estado.formulario?.tipo !== 'cliente') return;
+  const form = estado.formulario;
+  const nome = document.getElementById('form-nome').value.trim();
+  const utilizador = document.getElementById('form-utilizador').value.trim().toLowerCase();
+  const palavraPasse = document.getElementById('form-passe').value.trim();
+  const nota = document.getElementById('form-nota').value.trim().slice(0, 500);
+  if (nome.length < 2) { toast('Escreva o nome do cliente.'); return; }
+  if (!/^[a-z0-9]{3,20}$/.test(utilizador)) { toast('O utilizador só pode ter letras minúsculas e números, entre 3 e 20.'); return; }
+  if ((CONFIG.contas || []).some((conta) => conta.papel === 'fotografa' && conta.utilizador === utilizador)) {
+    toast('Esse utilizador é o da fotógrafa.');
+    return;
+  }
+  if (palavraPasse.length < 6) { toast('A palavra-passe precisa de pelo menos 6 caracteres.'); return; }
+  const catalogo = clonarCatalogo();
+  if (catalogo.clientes.some((conta) => conta.utilizador === utilizador && conta.utilizador !== form.original)) {
+    toast('Já existe um cliente com esse utilizador.');
+    return;
+  }
+  if (form.modo === 'novo') {
+    catalogo.clientes.push({ utilizador, palavraPasse, nome, ativo: true, nota });
+  } else {
+    const atual = catalogo.clientes.find((conta) => conta.utilizador === form.original);
+    if (!atual) { toast('Não encontrei esse cliente.'); return; }
+    if (form.original !== utilizador) {
+      for (const album of catalogo.albuns) {
+        if (album.cliente === form.original) album.cliente = utilizador;
+      }
+    }
+    atual.utilizador = utilizador;
+    atual.nome = nome;
+    atual.palavraPasse = palavraPasse;
+    atual.nota = nota;
+  }
+  const modo = form.modo;
+  estado.ocupado = true;
+  try {
+    await gravarCatalogo(catalogo, modo === 'novo' ? 'Novo cliente ' + utilizador : 'Atualizar cliente ' + utilizador);
+    estado.formulario = null;
+    estado.ocupado = false;
+    toast(modo === 'novo'
+      ? 'Cliente criado. Pode demorar um minuto até conseguir entrar.'
+      : 'Cliente atualizado. Se mudou a palavra-passe, envie o recado outra vez.');
+    refrescarEstudio();
+  } catch (erro) {
+    estado.ocupado = false;
+    toast(mensagemErro(erro));
+  }
+}
+
+async function guardarAlbumDoFormulario() {
+  if (estado.ocupado || estado.formulario?.tipo !== 'album') return;
+  const titulo = document.getElementById('form-titulo').value.trim();
+  const evento = document.getElementById('form-evento').value.trim();
+  const cliente = document.getElementById('form-cliente')?.value || '';
+  if (!titulo) { toast('Escreva o nome do álbum.'); return; }
+  const dono = clientes().find((conta) => conta.utilizador === cliente);
+  if (!dono) { toast('Escolha o cliente deste álbum.'); return; }
+  const id = idAlbum(titulo);
+  const manifesto = normalizarManifest({
+    id,
+    titulo,
+    evento,
+    limiteAlbum: 0,
+    mensagem: mensagemPadrao(dono.nome),
+    fotos: []
+  }, id);
+  const catalogo = clonarCatalogo();
+  catalogo.albuns.push({ id, cliente, arquivado: false, titulo, evento });
+  estado.ocupado = true;
+  try {
+    await commitJson([
+      { caminho: 'dados/estudio.json', dados: catalogo },
+      { caminho: `galerias/${id}/manifest.json`, dados: manifesto }
+    ], 'Novo álbum ' + titulo);
+    estado.catalogo = catalogo;
+    estado.formulario = null;
+    estado.manifestNovo = manifesto;
+    estado.ocupado = false;
+    toast('Álbum criado. Já pode largar as fotografias. O cliente pode demorar um minuto a vê-lo.');
+    if (location.hash !== '#/estudio/' + id) location.hash = '#/estudio/' + id;
+    else navegar();
+  } catch (erro) {
+    estado.ocupado = false;
+    toast(mensagemErro(erro));
+  }
+}
+
+async function alternarCliente(utilizador, ativo) {
+  if (estado.ocupado) return;
+  const cliente = clientes().find((conta) => conta.utilizador === utilizador);
+  if (!cliente) return;
+  const ok = await pedirConfirmacao(
+    ativo ? `${cliente.nome} volta a conseguir entrar.` : `${cliente.nome} deixa de conseguir entrar. Os álbuns e as fotografias ficam.`,
+    ativo ? 'Reativar' : 'Desativar'
+  );
+  if (!ok) return;
+  const catalogo = clonarCatalogo();
+  const atual = catalogo.clientes.find((conta) => conta.utilizador === utilizador);
+  if (!atual) return;
+  atual.ativo = ativo;
+  estado.ocupado = true;
+  try {
+    await gravarCatalogo(catalogo, (ativo ? 'Reativar ' : 'Desativar ') + utilizador);
+    estado.ocupado = false;
+    toast(ativo ? 'Acesso reativado.' : 'Acesso desativado.');
+    refrescarEstudio();
+  } catch (erro) {
+    estado.ocupado = false;
+    toast(mensagemErro(erro));
+  }
+}
+
+async function retirarCliente(utilizador) {
+  if (estado.ocupado) return;
+  const cliente = clientes().find((conta) => conta.utilizador === utilizador);
+  if (!cliente) return;
+  const ok = await pedirConfirmacao(
+    `${cliente.nome} deixa de conseguir entrar. Os álbuns ficam no estúdio, sem cliente, e as fotografias mantêm-se.`,
+    'Retirar acesso'
+  );
+  if (!ok) return;
+  const catalogo = clonarCatalogo();
+  catalogo.clientes = catalogo.clientes.filter((conta) => conta.utilizador !== utilizador);
+  for (const album of catalogo.albuns) {
+    if (album.cliente === utilizador) album.cliente = '';
+  }
+  estado.ocupado = true;
+  try {
+    await gravarCatalogo(catalogo, 'Retirar acesso de ' + utilizador);
+    estado.ocupado = false;
+    toast('Acesso retirado. Os álbuns ficaram por atribuir.');
+    refrescarEstudio();
+  } catch (erro) {
+    estado.ocupado = false;
+    toast(mensagemErro(erro));
+  }
+}
+
+async function alternarAlbum(id, ocultar) {
+  if (estado.ocupado) return;
+  const album = albumPorId(id);
+  if (!album || album.arquivado === ocultar) return;
+  const ok = await pedirConfirmacao(
+    ocultar ? 'O cliente deixa de ver este álbum. As fotografias ficam no estúdio.' : 'O cliente volta a ver este álbum.',
+    ocultar ? 'Ocultar' : 'Mostrar'
+  );
+  if (!ok) return;
+  const catalogo = clonarCatalogo();
+  const atual = catalogo.albuns.find((item) => item.id === id);
+  if (!atual) return;
+  atual.arquivado = ocultar;
+  estado.ocupado = true;
+  try {
+    await gravarCatalogo(catalogo, (ocultar ? 'Ocultar ' : 'Mostrar ') + (atual.titulo || id));
+    estado.ocupado = false;
+    toast(ocultar ? 'Álbum oculto para o cliente.' : 'Álbum visível outra vez.');
+    refrescarEstudio();
+  } catch (erro) {
+    estado.ocupado = false;
+    toast(mensagemErro(erro));
+  }
+}
+
+async function atribuirAlbum(id, utilizador) {
+  if (estado.ocupado) return;
+  const album = albumPorId(id);
+  if (!album || album.cliente === utilizador) return;
+  const nome = utilizador ? (clientes().find((conta) => conta.utilizador === utilizador)?.nome || utilizador) : 'ninguém';
+  const ok = await pedirConfirmacao('Este álbum passa a ser de ' + nome + '.', 'Mudar');
+  if (!ok) { refrescarEstudio(); return; }
+  const catalogo = clonarCatalogo();
+  const atual = catalogo.albuns.find((item) => item.id === id);
+  if (!atual) return;
+  atual.cliente = utilizador;
+  estado.ocupado = true;
+  try {
+    await gravarCatalogo(catalogo, 'Atribuir álbum a ' + nome);
+    estado.ocupado = false;
+    toast('Álbum atribuído.');
+    refrescarEstudio();
+  } catch (erro) {
+    estado.ocupado = false;
+    toast(mensagemErro(erro));
+    refrescarEstudio();
+  }
+}
+
 function aoClicar(evento) {
   if (evento.target.closest('.confirma')) return;
   const alvo = evento.target.closest('[data-acao]');
@@ -1529,10 +2085,60 @@ function aoClicar(evento) {
     return;
   }
   if (acao === 'copiar-recado') {
-    const familia = contaDaGaleria(alvo.dataset.galeria || estado.galeriaId);
-    if (familia) copiar(textoRecado(familia));
+    const utilizador = alvo.dataset.utilizador;
+    const familia = utilizador
+      ? clientes().find((conta) => conta.utilizador === utilizador)
+      : contaDaGaleria(alvo.dataset.galeria || estado.galeriaId);
+    if (!familia?.utilizador) {
+      toast('Este álbum ainda não tem cliente.');
+      return;
+    }
+    copiar(textoRecado(familia));
     return;
   }
+  if (acao === 'novo-cliente') {
+    estado.formulario = { tipo: 'cliente', modo: 'novo', nome: '', utilizador: '', palavraPasse: palavraPasseNova(), nota: '' };
+    refrescarEstudio();
+    return;
+  }
+  if (acao === 'editar-cliente') {
+    const cliente = clientes().find((conta) => conta.utilizador === alvo.dataset.utilizador);
+    if (!cliente) return;
+    estado.formulario = {
+      tipo: 'cliente',
+      modo: 'editar',
+      original: cliente.utilizador,
+      nome: cliente.nome,
+      utilizador: cliente.utilizador,
+      palavraPasse: cliente.palavraPasse,
+      nota: cliente.nota || ''
+    };
+    refrescarEstudio();
+    return;
+  }
+  if (acao === 'novo-album') {
+    if (!clientes().length) { toast('Crie primeiro um cliente.'); return; }
+    estado.formulario = { tipo: 'album', cliente: alvo.dataset.utilizador || clientes()[0].utilizador, titulo: '', evento: '' };
+    refrescarEstudio();
+    return;
+  }
+  if (acao === 'cancelar-form') {
+    estado.formulario = null;
+    refrescarEstudio();
+    return;
+  }
+  if (acao === 'nova-passe') {
+    const campo = document.getElementById('form-passe');
+    if (campo) campo.value = palavraPasseNova();
+    return;
+  }
+  if (acao === 'guardar-cliente') { guardarClienteDoFormulario(); return; }
+  if (acao === 'guardar-album') { guardarAlbumDoFormulario(); return; }
+  if (acao === 'desativar-cliente') { alternarCliente(alvo.dataset.utilizador, false); return; }
+  if (acao === 'reativar-cliente') { alternarCliente(alvo.dataset.utilizador, true); return; }
+  if (acao === 'retirar-cliente') { retirarCliente(alvo.dataset.utilizador); return; }
+  if (acao === 'ocultar-album') { alternarAlbum(alvo.dataset.id, true); return; }
+  if (acao === 'mostrar-album') { alternarAlbum(alvo.dataset.id, false); return; }
   if (acao === 'guardar-token') { guardarToken(); return; }
   if (acao === 'esquecer-token') {
     localStorage.removeItem('cc-token');
@@ -1595,6 +2201,11 @@ function aoClicar(evento) {
 function aoInput(evento) {
   const alvo = evento.target;
   if (alvo.dataset?.campo) guardarRascunhoDoFormulario();
+  if (alvo.id === 'form-nome' && estado.formulario?.modo === 'novo') {
+    const user = document.getElementById('form-utilizador');
+    if (user && user.dataset.auto === '1') user.value = utilizadorLivre(alvo.value);
+  }
+  if (alvo.id === 'form-utilizador') alvo.dataset.auto = '0';
   if (alvo.dataset?.acao === 'nota-geral') {
     const sel = lerSelecao(estado.galeriaId);
     sel.nota = alvo.value.slice(0, 2000);
@@ -1615,6 +2226,10 @@ function aoInput(evento) {
 
 function aoMudar(evento) {
   const alvo = evento.target;
+  if (alvo instanceof HTMLSelectElement && alvo.dataset.acao === 'atribuir-album') {
+    atribuirAlbum(alvo.dataset.id, alvo.value);
+    return;
+  }
   if (!(alvo instanceof HTMLInputElement) || alvo.type !== 'file') return;
   if (alvo.dataset.acao === 'escolher-fotos') adicionarFicheiros(alvo.files);
   if (alvo.dataset.acao === 'importar-ficheiro' && alvo.files[0]) importarFicheiro(alvo.files[0]);
@@ -1651,15 +2266,22 @@ function aoSubmeter(evento) {
   evento.preventDefault();
   const utilizador = document.getElementById('utilizador').value.trim().toLowerCase();
   const passe = document.getElementById('palavra-passe').value.trim();
-  const conta = CONFIG.contas.find((item) => item.utilizador === utilizador && item.palavraPasse === passe);
+  const host = (CONFIG.contas || []).find((item) => item.papel === 'fotografa' && item.utilizador === utilizador && item.palavraPasse === passe);
+  const cliente = clientes().find((item) => item.utilizador === utilizador && item.palavraPasse === passe);
+  const conta = host || (cliente ? { ...cliente, papel: 'cliente' } : null);
+  const erro = document.querySelector('.erro');
+  if (cliente && cliente.ativo === false && !host) {
+    erro.textContent = 'Este acesso está desativado.';
+    document.getElementById('palavra-passe').focus();
+    return;
+  }
   if (!conta) {
-    const erro = document.querySelector('.erro');
     erro.textContent = 'Não reconheço estes dados.';
     document.getElementById('palavra-passe').focus();
     return;
   }
   localStorage.setItem('cc-sessao', JSON.stringify({ utilizador: conta.utilizador }));
-  const destino = conta.papel === 'fotografa' ? '#/estudio' : '#/sala/' + conta.galeria;
+  const destino = conta.papel === 'fotografa' ? '#/estudio' : destinoCliente(conta);
   if (location.hash !== destino) location.hash = destino;
   else navegar();
 }
@@ -1673,6 +2295,8 @@ async function navegar() {
     app.textContent = 'Falta a configuração.';
     return;
   }
+  if (!estado.catalogo) estado.catalogo = await obterCatalogo();
+  if (ticket !== pedidoNavegacao) return;
   const conta = sessao();
   const partes = (location.hash || '#/entrar').replace(/^#\/?/, '').split('/').filter(Boolean);
   const rota = partes[0] || 'entrar';
@@ -1683,22 +2307,33 @@ async function navegar() {
     return;
   }
   if (conta.papel === 'cliente') {
-    const destino = '#/sala/' + conta.galeria;
+    if (rota === 'sala' && id && clientePodeVer(conta, id)) {
+      estado.galeriaId = id;
+      estado.modoLuz = 'votar';
+      app.replaceChildren(el('p', { class: 'a-carregar pagina', text: 'A abrir a sala…' }));
+      try {
+        const manifesto = await carregarManifestOuVazio(id);
+        if (ticket !== pedidoNavegacao) return;
+        estado.manifest = manifesto;
+        pintarSala(ticket, manifesto, 'votar');
+      } catch {
+        if (ticket === pedidoNavegacao) pintarErro('Não consegui abrir a sua sala.');
+      }
+      return;
+    }
+    const destino = destinoCliente(conta);
     if (location.hash !== destino) {
       location.replace(destino);
       return;
     }
-    estado.galeriaId = conta.galeria;
-    estado.modoLuz = 'votar';
-    app.replaceChildren(el('p', { class: 'a-carregar pagina', text: 'A abrir a sala…' }));
-    try {
-      const manifesto = await carregarManifest(conta.galeria);
-      if (ticket !== pedidoNavegacao) return;
-      estado.manifest = manifesto;
-      pintarSala(ticket, manifesto, 'votar');
-    } catch {
-      if (ticket === pedidoNavegacao) pintarErro('Não consegui abrir a sua sala.');
-    }
+    app.replaceChildren(el('p', { class: 'a-carregar pagina', text: 'A abrir os álbuns…' }));
+    const pares = await Promise.all(albunsDo(conta.utilizador, false).map(async (album) => {
+      try { return [album.id, await carregarManifest(album.id)]; }
+      catch { return [album.id, null]; }
+    }));
+    if (ticket !== pedidoNavegacao) return;
+    estado.manifestos = Object.fromEntries(pares);
+    pintarAlbunsCliente(ticket);
     return;
   }
   if (rota === 'sala' && id && contaDaGaleria(id)) {
@@ -1706,7 +2341,7 @@ async function navegar() {
     estado.modoLuz = 'ver';
     app.replaceChildren(el('p', { class: 'a-carregar pagina', text: 'A abrir a sala…' }));
     try {
-      const manifesto = await carregarManifest(id);
+      const manifesto = await carregarManifestOuVazio(id);
       if (ticket !== pedidoNavegacao) return;
       estado.manifest = manifesto;
       pintarSala(ticket, manifesto, 'ver');
@@ -1720,7 +2355,7 @@ async function navegar() {
     estado.galeriaId = id;
     app.replaceChildren(el('p', { class: 'a-carregar pagina', text: 'A abrir a sala…' }));
     try {
-      const manifesto = await carregarManifest(id);
+      const manifesto = await carregarManifestOuVazio(id);
       if (ticket !== pedidoNavegacao) return;
       estado.manifest = manifesto;
       pintarPreparar(ticket, manifesto);
@@ -1734,12 +2369,13 @@ async function navegar() {
     return;
   }
   app.replaceChildren(el('p', { class: 'a-carregar pagina', text: 'A abrir o estúdio…' }));
-  const pares = await Promise.all(familias().map(async (familia) => {
-    try { return [familia.galeria, await carregarManifest(familia.galeria)]; }
-    catch { return [familia.galeria, null]; }
+  const pares = await Promise.all(albunsVisiveis().map(async (album) => {
+    try { return [album.id, await carregarManifest(album.id)]; }
+    catch { return [album.id, null]; }
   }));
   if (ticket !== pedidoNavegacao) return;
-  pintarEstudio(ticket, Object.fromEntries(pares));
+  estado.manifestos = Object.fromEntries(pares);
+  pintarEstudio(ticket, estado.manifestos);
 }
 
 let arrastoTimer = 0;
@@ -1783,9 +2419,13 @@ document.addEventListener('keydown', aoTecla);
 window.addEventListener('hashchange', () => { navegar(); });
 
 document.title = CONFIG.nome + ' — Sala de provas';
-if (!location.hash) {
-  const conta = sessao();
-  location.replace(conta ? (conta.papel === 'fotografa' ? '#/estudio' : '#/sala/' + conta.galeria) : '#/entrar');
-} else {
-  navegar();
+async function arrancar() {
+  estado.catalogo = await obterCatalogo();
+  if (!location.hash) {
+    const conta = sessao();
+    location.replace(conta ? (conta.papel === 'fotografa' ? '#/estudio' : destinoCliente(conta)) : '#/entrar');
+  } else {
+    navegar();
+  }
 }
+arrancar();

@@ -7,7 +7,7 @@ Site estático para um cliente ver as fotografias de um trabalho, marcar com vis
 1. Crie um repositório no GitHub e envie esta pasta.
 2. Em **Settings → Pages**, escolha o ramo `main` e a pasta raiz (`/`).
 3. Abra o endereço do site e entre com o utilizador da fotógrafa.
-4. A palavra-passe está em `js/config.js`, na primeira conta. Mude-a antes de partilhar.
+4. A palavra-passe da fotógrafa está em `js/config.js`. Os clientes criam-se no estúdio.
 
 ## Deixar as fotografias
 
@@ -19,9 +19,13 @@ Site estático para um cliente ver as fotografias de um trabalho, marcar com vis
 
 O original fica guardado. Na grelha o cliente vê uma versão mais leve; ao abrir a fotografia, carrega o ficheiro completo.
 
-## As cinco salas
+## Clientes e álbuns
 
-Os utilizadores e as palavras-passe estão em `js/config.js`. A fotógrafa também os vê no estúdio, com um botão para copiar o recado de cada cliente. O nome de cada sala muda-se nesse ficheiro.
+A conta da fotógrafa continua em `js/config.js`. Os clientes e os álbuns criam-se no estúdio, com o GitHub ligado, e ficam em `dados/estudio.json`. Assim o cliente consegue entrar noutro aparelho.
+
+No estúdio pode criar clientes, mudar o nome e a palavra-passe, deixar uma nota que só ela vê, desativar ou retirar o acesso, criar vários álbuns para o mesmo cliente, ocultar um álbum e passá-lo a outro cliente. Retirar o acesso não apaga as fotografias.
+
+As cinco contas iniciais (Costa, Santos, Oliveira, Ferreira, Rodrigues) já estão nesse ficheiro. Se o ficheiro não carregar, o site volta a essas contas.
 
 ## Quando o cliente responde
 

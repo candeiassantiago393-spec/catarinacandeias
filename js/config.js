@@ -1,6 +1,7 @@
 /* Catarina Candeias — Sala de provas
-   Mude o nome e as palavras-passe antes de partilhar o site.
-   A fotógrafa vê esta lista depois de entrar.
+   A conta da fotógrafa fica aqui. Clientes e álbuns novos
+   criam-se no estúdio e ficam em dados/estudio.json.
+   As cinco contas abaixo só servem se esse ficheiro não carregar.
    No plano gratuito do GitHub o site é público: a palavra-passe
    afasta visitas casuais, não esconde os ficheiros de quem
    saiba procurá-los no repositório. */
