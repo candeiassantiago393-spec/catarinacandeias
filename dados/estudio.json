@@ -1,17 +1,9 @@
 {
-  "clientes": [
-    {
-      "utilizador": "paula",
-      "palavraPasse": "paulacandi123",
-      "nome": "paula",
-      "ativo": true,
-      "nota": ""
-    }
-  ],
+  "clientes": [],
   "albuns": [
     {
       "id": "casmento-oriev-2d3d",
-      "cliente": "paula",
+      "cliente": "",
       "arquivado": false,
       "titulo": "casmento oriev",
       "evento": "batizado"
