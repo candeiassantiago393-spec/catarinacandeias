@@ -7,6 +7,61 @@
   "prazo": "",
   "limiteAlbum": 0,
   "mensagem": "",
-  "fotos": [],
-  "atualizado": null
+  "fotos": [
+    {
+      "id": "e47176a5d1cc8a08",
+      "nome": "Captura de ecrã 2026-10-14 195736.png",
+      "original": "originais/e47176a5d1cc8a08.png",
+      "previa": "previas/e47176a5d1cc8a08.jpg",
+      "largura": 1950,
+      "altura": 1368,
+      "bytes": 129896
+    },
+    {
+      "id": "a28602a0da8eb186",
+      "nome": "Captura de ecrã 2026-10-14 200332.png",
+      "original": "originais/a28602a0da8eb186.png",
+      "previa": "previas/a28602a0da8eb186.jpg",
+      "largura": 1572,
+      "altura": 1262,
+      "bytes": 91643
+    },
+    {
+      "id": "192ac3c50fda0602",
+      "nome": "Captura de ecrã 2026-10-14 200403.png",
+      "original": "originais/192ac3c50fda0602.png",
+      "previa": "previas/192ac3c50fda0602.jpg",
+      "largura": 1700,
+      "altura": 1228,
+      "bytes": 169341
+    },
+    {
+      "id": "490830330ec8dded",
+      "nome": "Captura de ecrã 2026-10-14 200451.png",
+      "original": "originais/490830330ec8dded.png",
+      "previa": "previas/490830330ec8dded.jpg",
+      "largura": 2532,
+      "altura": 1362,
+      "bytes": 490902
+    },
+    {
+      "id": "d4f257d647ea4d99",
+      "nome": "Captura de ecrã 2026-10-14 200509.png",
+      "original": "originais/d4f257d647ea4d99.png",
+      "previa": "previas/d4f257d647ea4d99.jpg",
+      "largura": 2512,
+      "altura": 1468,
+      "bytes": 590142
+    },
+    {
+      "id": "407a5bc143e36e0f",
+      "nome": "Captura de ecrã 2026-10-14 200705.png",
+      "original": "originais/407a5bc143e36e0f.png",
+      "previa": "previas/407a5bc143e36e0f.jpg",
+      "largura": 2560,
+      "altura": 1600,
+      "bytes": 695926
+    }
+  ],
+  "atualizado": "2026-10-14T19:29:25.084Z"
 }
