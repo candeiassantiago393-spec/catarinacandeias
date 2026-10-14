@@ -1,4 +1,12 @@
 {
-  "clientes": [],
+  "clientes": [
+    {
+      "utilizador": "prova",
+      "palavraPasse": "MelNorte19",
+      "nome": "Prova",
+      "ativo": true,
+      "nota": ""
+    }
+  ],
   "albuns": []
 }
