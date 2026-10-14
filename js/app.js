@@ -277,8 +277,8 @@ function destinoCliente(conta) {
   return '#/albuns';
 }
 
-function mensagemPadrao(nome) {
-  return `Olá, ${nome}. Visto no que queres, cruz no que não queres, estrela no que fica no álbum.`;
+function mensagemPadrao() {
+  return '';
 }
 
 function palavraPasseNova() {
@@ -926,13 +926,22 @@ function pintarLogin(mensagem) {
   document.getElementById('utilizador').focus();
 }
 
-function blocoLigacao() {
-  if (!estado.pedirCodigo) return null;
-  return el('section', { class: 'painel-form', id: 'pedir-codigo' }, [
-    el('p', { class: 'sub', text: 'Cola o código. É só desta vez, neste computador.' }),
+function campoCodigo() {
+  if (GITHUB.token() && !estado.pedirCodigo) return null;
+  return el('div', { id: 'pedir-codigo' }, [
+    el('p', { class: 'sub', text: 'Para guardar, cola o código. É só neste computador.' }),
     el('label', { text: 'Código' }, el('input', { id: 'campo-token', type: 'password', autocomplete: 'off', spellcheck: 'false' })),
-    el('div', { class: 'acoes' }, [botao('guardar-token', 'Pronto', 'primario')])
+    el('p', { class: 'sub' }, el('a', {
+      href: 'https://github.com/settings/tokens/new?scopes=repo&description=Catarina',
+      target: '_blank',
+      rel: 'noopener noreferrer',
+      text: 'Criar código'
+    }))
   ]);
+}
+
+function blocoLigacao() {
+  return campoCodigo();
 }
 
 function selectCliente(album) {
@@ -979,6 +988,7 @@ function painelFormulario() {
       campoTexto('form-utilizador', 'Utilizador', form.utilizador, { autocomplete: 'off', spellcheck: 'false', maxlength: '20', 'data-auto': form.modo === 'novo' ? '1' : '0' }),
       campoTexto('form-passe', 'Palavra-passe', form.palavraPasse, { autocomplete: 'off', spellcheck: 'false', maxlength: '80' }),
       el('label', { text: 'Nota' }, el('textarea', { id: 'form-nota', rows: '2', maxlength: '500', value: form.nota || '' })),
+      campoCodigo(),
       el('div', { class: 'acoes' }, [
         botao('guardar-cliente', 'Guardar', 'primario'),
         botao('nova-passe', 'Outra passe', 'texto'),
@@ -997,6 +1007,7 @@ function painelFormulario() {
       campoTexto('form-titulo', 'Nome', form.titulo, { autocomplete: 'off', maxlength: '120', placeholder: 'O casamento, a sessão…' }),
       campoTexto('form-evento', 'Tipo de trabalho', form.evento, { autocomplete: 'off', maxlength: '80', placeholder: 'Casamento, batizado, família…' }),
       clientes().length ? el('label', { text: 'Cliente' }, select) : el('p', { class: 'sub', text: 'Primeiro cria um cliente.' }),
+      campoCodigo(),
       el('div', { class: 'acoes' }, [
         clientes().length ? botao('guardar-album', 'Criar', 'primario') : null,
         botao('cancelar-form', 'Cancelar', 'texto')
@@ -1048,12 +1059,13 @@ function pintarEstudio(ticket, manifestos) {
       botao('novo-cliente', 'Novo cliente', 'primario'),
       botao('novo-album', 'Novo álbum', 'secundario')
     ]),
-    blocoLigacao(),
+    estado.formulario ? null : blocoLigacao(),
     painelFormulario(),
     lista,
   ]));
-  document.getElementById('pedir-codigo')?.scrollIntoView({ block: 'start' });
-  (document.getElementById('campo-token') || document.getElementById('form-nome') || document.getElementById('form-titulo'))?.focus();
+  if (estado.pedirCodigo) document.getElementById('pedir-codigo')?.scrollIntoView({ block: 'center' });
+  if (estado.pedirCodigo) document.getElementById('campo-token')?.focus();
+  else document.getElementById('form-nome')?.focus() || document.getElementById('form-titulo')?.focus();
 }
 
 function pintarAlbunsCliente(ticket) {
@@ -1121,7 +1133,7 @@ function celulaFoto(foto, modo) {
     moldura,
     el('div', { class: 'pe' }, [
       el('span', { text: numeroDe(foto) }),
-      el('span', { class: 'nome', text: foto.nome || '' }),
+      modo === 'votar' ? null : el('span', { class: 'nome', text: foto.nome || '' }),
       (marca.comentario || '').trim() ? el('span', { class: 'ponto', title: 'Tem comentário' }) : null
     ])
   ]);
@@ -1201,7 +1213,6 @@ function pintarPreparar(ticket, manifesto) {
   app.replaceChildren(el('div', { class: 'pagina preparar' }, [
     topo(conta, familia.nome),
     el('p', { class: 'nao-imprimir' }, el('a', { href: '#/estudio', text: 'Estúdio' })),
-    blocoLigacao(),
     el('section', { class: 'cabeca-sala' }, [
       el('h2', { text: form.titulo || familia.nome || 'Sala' }),
       familia.utilizador ? el('p', { class: 'credenciais', text: familia.utilizador + '  ·  ' + familia.palavraPasse }) : null,
@@ -1238,6 +1249,7 @@ function pintarPreparar(ticket, manifesto) {
       el('p', { id: 'fila-resumo', class: 'sub', text: '' }),
       el('p', { id: 'fila-aviso', class: 'aviso-suave', hidden: true, text: 'É pesado. Se falhar, publica outra vez.' }),
       el('ul', { class: 'fila', id: 'fila-fotos' }),
+      campoCodigo(),
       el('div', { class: 'acoes' }, [
         botao('publicar', fila.length ? 'Publicar' : 'Guardar', 'primario', { disabled: estado.ocupado }),
         fila.length ? botao('limpar-fila', 'Limpar', 'texto') : null
@@ -1370,7 +1382,7 @@ function pintarSala(ticket, manifesto, modo) {
       ? el('p', { class: 'nao-imprimir' }, el('a', { href: '#/albuns', text: 'Álbuns' }))
       : null,
     modo === 'ver' ? el('p', { class: 'nao-imprimir' }, el('a', { href: '#/estudio/' + estado.galeriaId, text: 'Voltar' })) : null,
-    el('section', { class: 'cabeca-sala' }, [
+    modo === 'votar' ? null : el('section', { class: 'cabeca-sala' }, [
       [manifesto.evento, familia.nome].filter(Boolean).join(' · ') ? el('p', { class: 'kicker', text: [manifesto.evento, familia.nome].filter(Boolean).join(' · ') }) : null,
       el('h2', { text: manifesto.titulo || familia.nome }),
       meta ? el('p', { class: 'meta-linha', text: meta }) : null,
@@ -1746,6 +1758,7 @@ async function aoPublicar() {
     toast('Falta o nome.');
     return;
   }
+  if (!(await ligarSePreciso())) return;
   const ficheiros = filaDe(estado.galeriaId).map((item) => item.file);
   estado.ocupado = true;
   document.querySelectorAll('.preparar button').forEach((b) => { b.disabled = true; });
@@ -1773,6 +1786,49 @@ async function aoPublicar() {
       toast(mensagemErro(erro));
       navegar();
     }
+  }
+}
+
+async function ligarSePreciso() {
+  if (GITHUB.token() && !estado.pedirCodigo) return true;
+  const valor = document.getElementById('campo-token')?.value.trim() || '';
+  if (GITHUB.token() && !valor) {
+    estado.pedirCodigo = false;
+    return true;
+  }
+  if (!valor) {
+    estado.pedirCodigo = true;
+    toast('Cola o código. É só desta vez.');
+    const campo = document.getElementById('campo-token');
+    if (campo) {
+      campo.focus();
+      campo.closest('#pedir-codigo')?.scrollIntoView({ block: 'center' });
+    }
+    return false;
+  }
+  const repoInfo = repositorio();
+  const anterior = localStorage.getItem('cc-token');
+  localStorage.setItem('cc-token', valor);
+  try {
+    const info = await GITHUB.pedido(`/repos/${repoInfo.owner}/${repoInfo.repo}`);
+    if (info.permissions && info.permissions.push === false) throw new Error('Não consegui guardar.');
+    localStorage.setItem('cc-repo', JSON.stringify({
+      owner: repoInfo.owner,
+      repo: repoInfo.repo,
+      branch: repoInfo.branch || info.default_branch
+    }));
+    localStorage.setItem('cc-ligado', JSON.stringify({
+      fullName: info.full_name,
+      branch: repoInfo.branch || info.default_branch
+    }));
+    estado.pedirCodigo = false;
+    return true;
+  } catch (erro) {
+    if (anterior) localStorage.setItem('cc-token', anterior);
+    else localStorage.removeItem('cc-token');
+    estado.pedirCodigo = true;
+    toast('Esse código não serviu.');
+    return false;
   }
 }
 
@@ -1847,6 +1903,7 @@ async function guardarClienteDoFormulario() {
     return;
   }
   if (palavraPasse.length < 6) { toast('A passe fica curta.'); return; }
+  if (!(await ligarSePreciso())) return;
   const catalogo = clonarCatalogo();
   if (catalogo.clientes.some((conta) => conta.utilizador === utilizador && conta.utilizador !== form.original)) {
     toast('Já há alguém com esse utilizador.');
@@ -1891,6 +1948,7 @@ async function guardarAlbumDoFormulario() {
   if (!titulo) { toast('Falta o nome.'); return; }
   const dono = clientes().find((conta) => conta.utilizador === cliente);
   if (!dono) { toast('Escolhe o cliente.'); return; }
+  if (!(await ligarSePreciso())) return;
   const id = idAlbum(titulo);
   const manifesto = normalizarManifest({
     id,
