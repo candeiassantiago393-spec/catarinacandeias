@@ -108,6 +108,32 @@ a.marca {
   max-width: 420px;
 }
 
+.campo-passe {
+  position: relative;
+  display: block;
+}
+
+.campo-passe input {
+  padding-right: 76px;
+}
+
+button.ver-passe {
+  position: absolute;
+  right: 0;
+  bottom: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--mudo);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+button.ver-passe[aria-pressed="true"] {
+  color: var(--ouro);
+}
+
 .lede {
   font-family: var(--serif);
   font-style: italic;

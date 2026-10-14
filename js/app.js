@@ -30,7 +30,8 @@ const estado = {
   formulario: null,
   manifestos: null,
   manifestNovo: null,
-  pedirCodigo: false
+  pedirCodigo: false,
+  sessao: null
 };
 
 const filas = {};
@@ -249,7 +250,7 @@ function contaFotografa() {
 }
 
 function sessao() {
-  const guardada = jsonSeguro('cc-sessao');
+  const guardada = estado.sessao;
   if (!guardada?.utilizador) return null;
   const host = (CONFIG.contas || []).find((conta) => conta.papel === 'fotografa' && conta.utilizador === guardada.utilizador);
   if (host) return host;
@@ -915,9 +916,22 @@ function pintarLogin(mensagem) {
   app.replaceChildren(el('section', { class: 'login' }, [
     el('h1', { text: CONFIG.nome }),
     el('div', { class: 'login-corpo' }, [
-      el('form', { 'data-acao': 'entrar' }, [
-        campoTexto('utilizador', 'Utilizador', '', { autocomplete: 'username', required: true }),
-        el('label', { text: 'Palavra-passe' }, el('input', { id: 'palavra-passe', type: 'password', autocomplete: 'current-password', required: true })),
+      el('form', { 'data-acao': 'entrar', autocomplete: 'off' }, [
+        campoTexto('utilizador', 'Utilizador', '', { autocomplete: 'off', required: true, spellcheck: 'false' }),
+        el('div', { class: 'campo' }, [
+          el('label', { for: 'palavra-passe', text: 'Palavra-passe' }),
+          el('span', { class: 'campo-passe' }, [
+            el('input', { id: 'palavra-passe', type: 'password', autocomplete: 'off', required: true, spellcheck: 'false' }),
+            el('button', {
+              type: 'button',
+              class: 'ver-passe',
+              'data-acao': 'ver-passe',
+              'aria-pressed': 'false',
+              'aria-label': 'Mostrar palavra-passe',
+              text: 'Ver'
+            })
+          ])
+        ]),
         el('p', { class: 'erro', role: 'alert', text: mensagem || '' }),
         el('div', { class: 'acoes' }, [el('button', { type: 'submit', class: 'primario', text: 'Entrar' })])
       ])
@@ -2097,7 +2111,19 @@ function aoClicar(evento) {
   const alvo = evento.target.closest('[data-acao]');
   if (!alvo) return;
   const acao = alvo.dataset.acao;
+  if (acao === 'ver-passe') {
+    const campo = document.getElementById('palavra-passe');
+    if (!campo) return;
+    const mostrar = campo.type === 'password';
+    campo.type = mostrar ? 'text' : 'password';
+    alvo.setAttribute('aria-pressed', mostrar ? 'true' : 'false');
+    alvo.setAttribute('aria-label', mostrar ? 'Ocultar palavra-passe' : 'Mostrar palavra-passe');
+    alvo.textContent = mostrar ? 'Ocultar' : 'Ver';
+    campo.focus();
+    return;
+  }
   if (acao === 'sair') {
+    estado.sessao = null;
     localStorage.removeItem('cc-sessao');
     fecharLuz();
     if (location.hash !== '#/entrar') location.hash = '#/entrar';
@@ -2300,7 +2326,7 @@ function aoSubmeter(evento) {
     document.getElementById('palavra-passe').focus();
     return;
   }
-  localStorage.setItem('cc-sessao', JSON.stringify({ utilizador: conta.utilizador }));
+  estado.sessao = { utilizador: conta.utilizador };
   const destino = conta.papel === 'fotografa' ? '#/estudio' : destinoCliente(conta);
   if (location.hash !== destino) location.hash = destino;
   else navegar();
@@ -2440,6 +2466,7 @@ window.addEventListener('hashchange', () => { navegar(); });
 
 document.title = CONFIG.nome + ' — Sala de provas';
 async function arrancar() {
+  localStorage.removeItem('cc-sessao');
   estado.catalogo = await obterCatalogo();
   if (!location.hash) {
     const conta = sessao();
