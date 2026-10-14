@@ -1711,7 +1711,14 @@ async function enviarSelecao() {
     if (!ok) return;
   }
   const texto = textoResumo(payload);
-  const ficheiro = new File([JSON.stringify(payload, null, 2)], `selecao-${estado.galeriaId}.json`, { type: 'application/json' });
+  const conteudo = JSON.stringify(payload, null, 2);
+  if (window.Android && typeof window.Android.partilhar === 'function') {
+    window.Android.partilhar('selecao-' + estado.galeriaId + '.json', conteudo);
+    marcarSelecaoEnviada(payload.enviadoEm);
+    toast('Pronta a enviar.');
+    return;
+  }
+  const ficheiro = new File([conteudo], `selecao-${estado.galeriaId}.json`, { type: 'application/json' });
   try {
     if (navigator.canShare && navigator.canShare({ files: [ficheiro] })) {
       await navigator.share({ title: 'Seleção', text: texto, files: [ficheiro] });
