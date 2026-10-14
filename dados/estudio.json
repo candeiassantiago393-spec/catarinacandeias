@@ -6,6 +6,13 @@
       "nome": "paula",
       "ativo": true,
       "nota": ""
+    },
+    {
+      "utilizador": "catarina2",
+      "palavraPasse": "SerraCampo55",
+      "nome": "catarina",
+      "ativo": true,
+      "nota": ""
     }
   ],
   "albuns": [
