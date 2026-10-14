@@ -322,32 +322,17 @@ function idAlbum(titulo) {
   return 'album-' + novoId();
 }
 
-function precisaCodigo() {
-  return false;
+function precisaCodigo(erro) {
+  if (!GITHUB.token() || erro?.semCodigo) return true;
+  return /bad credentials|permission|resource not accessible|must have push access/i.test(erro?.message || '');
 }
 
 function mostrarPedidoDeCodigo() {
+  estado.pedirCodigo = true;
   estado.ocupado = false;
-  toast('Abre o programa neste computador.');
-}
-
-function noComputador() {
-  return location.hostname === '127.0.0.1' || location.hostname === 'localhost';
-}
-
-async function guardarLocal(ficheiros, apagar, mensagem) {
-  let resposta;
-  try {
-    resposta = await fetch('/api/guardar', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mensagem, ficheiros, apagar: apagar || [] })
-    });
-  } catch {
-    throw new Error('Abre o programa neste computador.');
-  }
-  const corpo = await resposta.json().catch(() => ({}));
-  if (!resposta.ok) throw new Error(corpo.erro || 'Não consegui guardar.');
+  toast('Cola o código. É só desta vez.');
+  if (location.hash === '#/estudio' || location.hash === '#/estudio/') refrescarEstudio();
+  else navegar();
 }
 
 function tituloAlbum(album, manifesto) {
@@ -355,11 +340,27 @@ function tituloAlbum(album, manifesto) {
 }
 
 async function commitJson(ficheiros, mensagem) {
-  if (!noComputador()) throw new Error('Abre o programa neste computador.');
-  await guardarLocal(ficheiros.map((ficheiro) => ({
-    caminho: ficheiro.caminho,
-    texto: JSON.stringify(ficheiro.dados, null, 2) + '\n'
-  })), [], mensagem);
+  const repo = repositorio();
+  if (!GITHUB.token()) {
+    const erro = new Error('Não consegui guardar.');
+    erro.semCodigo = true;
+    throw erro;
+  }
+  if (!nomeValido(repo.owner) || !nomeValido(repo.repo) || (repo.branch && !nomeValido(repo.branch))) {
+    throw new Error('Não consegui guardar.');
+  }
+  const info = await GITHUB.pedido(`/repos/${repo.owner}/${repo.repo}`);
+  if (info.permissions && info.permissions.push === false) {
+    throw new Error('Não consegui guardar.');
+  }
+  const branch = repo.branch || info.default_branch;
+  const tree = [];
+  for (const ficheiro of ficheiros) {
+    const blob = new Blob([JSON.stringify(ficheiro.dados, null, 2) + '\n'], { type: 'application/json' });
+    const sha = await GITHUB.criarBlob(repo.owner, repo.repo, await blobBase64(blob));
+    tree.push({ path: ficheiro.caminho, mode: '100644', type: 'blob', sha });
+  }
+  await GITHUB.commit(repo.owner, repo.repo, branch, tree, mensagem);
 }
 
 async function gravarCatalogo(catalogo, mensagem) {
@@ -769,8 +770,23 @@ function definirProgresso(texto) {
 }
 
 async function publicarSala(galeriaId, ficheiros, meta, onLote) {
-  if (!noComputador()) throw new Error('Abre o programa neste computador.');
-  let manifesto = normalizarManifest(estado.manifest || { id: galeriaId }, galeriaId);
+  const repo = repositorio();
+  if (!nomeValido(repo.owner) || !nomeValido(repo.repo)) {
+    throw new Error('Não consegui guardar.');
+  }
+  if (repo.branch && !nomeValido(repo.branch)) throw new Error('Não consegui guardar.');
+  if (!GITHUB.token()) {
+    const erro = new Error('Não consegui guardar.');
+    erro.semCodigo = true;
+    throw erro;
+  }
+
+  const info = await GITHUB.pedido(`/repos/${repo.owner}/${repo.repo}`);
+  if (info.permissions && info.permissions.push === false) {
+    throw new Error('Não consegui guardar.');
+  }
+  const branch = repo.branch || info.default_branch;
+  let manifesto = await lerManifestAtual(repo.owner, repo.repo, branch, galeriaId);
   manifesto = {
     ...manifesto,
     evento: meta.evento,
@@ -783,20 +799,22 @@ async function publicarSala(galeriaId, ficheiros, meta, onLote) {
     id: galeriaId,
     fotos: manifesto.fotos.slice()
   };
-  if (!ficheiros.length) {
-    manifesto.atualizado = new Date().toISOString();
-    await guardarLocal([{
-      caminho: `galerias/${galeriaId}/manifest.json`,
-      texto: JSON.stringify(manifesto, null, 2) + '\n'
-    }], [], `Atualizar a sala ${galeriaId}`);
-    return manifesto;
-  }
 
   const lotes = [];
   for (let i = 0; i < ficheiros.length; i += 6) lotes.push(ficheiros.slice(i, i + 6));
+  if (!lotes.length) {
+    manifesto.atualizado = new Date().toISOString();
+    const sha = await GITHUB.criarBlob(repo.owner, repo.repo, await blobBase64(new Blob([JSON.stringify(manifesto, null, 2)], { type: 'application/json' })));
+    await GITHUB.commit(repo.owner, repo.repo, branch, [
+      { path: `galerias/${galeriaId}/manifest.json`, mode: '100644', type: 'blob', sha }
+    ], `Atualizar a sala ${galeriaId}`);
+    return manifesto;
+  }
+
   let feitos = 0;
   for (const lote of lotes) {
-    const payload = [];
+    const seguinte = JSON.parse(JSON.stringify(manifesto));
+    const arvore = [];
     for (const file of lote) {
       feitos += 1;
       definirProgresso(`A enviar ${file.name} (${feitos} de ${ficheiros.length})…`);
@@ -807,17 +825,17 @@ async function publicarSala(galeriaId, ficheiros, meta, onLote) {
       const ext = extensao(file.name, file.type);
       const original = `originais/${id}${ext}`;
       const caminhoPrevia = previa ? `previas/${id}.jpg` : original;
-      payload.push({
-        caminho: `galerias/${galeriaId}/${original}`,
-        base64: await blobBase64(file)
-      });
-      if (previa) {
-        payload.push({
-          caminho: `galerias/${galeriaId}/${caminhoPrevia}`,
-          base64: await blobBase64(previa.blob)
-        });
+      try {
+        const shaOriginal = await GITHUB.criarBlob(repo.owner, repo.repo, await blobBase64(file));
+        arvore.push({ path: `galerias/${galeriaId}/${original}`, mode: '100644', type: 'blob', sha: shaOriginal });
+        if (previa) {
+          const shaPrevia = await GITHUB.criarBlob(repo.owner, repo.repo, await blobBase64(previa.blob));
+          arvore.push({ path: `galerias/${galeriaId}/${caminhoPrevia}`, mode: '100644', type: 'blob', sha: shaPrevia });
+        }
+      } catch (erro) {
+        throw new Error(`Não consegui enviar «${file.name}». ${erro.message || ''}`);
       }
-      manifesto.fotos.push({
+      seguinte.fotos.push({
         id,
         nome: file.name,
         original,
@@ -826,14 +844,14 @@ async function publicarSala(galeriaId, ficheiros, meta, onLote) {
         altura: previa ? previa.altura : 0,
         bytes: file.size
       });
+      await esperar(120);
     }
-    manifesto.atualizado = new Date().toISOString();
-    payload.push({
-      caminho: `galerias/${galeriaId}/manifest.json`,
-      texto: JSON.stringify(manifesto, null, 2) + '\n'
-    });
+    seguinte.atualizado = new Date().toISOString();
+    const shaManifesto = await GITHUB.criarBlob(repo.owner, repo.repo, await blobBase64(new Blob([JSON.stringify(seguinte, null, 2)], { type: 'application/json' })));
+    arvore.push({ path: `galerias/${galeriaId}/manifest.json`, mode: '100644', type: 'blob', sha: shaManifesto });
     definirProgresso(`A guardar ${feitos} de ${ficheiros.length} no site…`);
-    await guardarLocal(payload, [], `Fotografias para ${galeriaId} (${feitos}/${ficheiros.length})`);
+    await GITHUB.commit(repo.owner, repo.repo, branch, arvore, `Fotografias para ${galeriaId} (${feitos}/${ficheiros.length})`);
+    manifesto = seguinte;
     onLote(lote);
   }
   return manifesto;
@@ -842,22 +860,28 @@ async function publicarSala(galeriaId, ficheiros, meta, onLote) {
 async function removerFotoPublicada(foto) {
   const ok = await pedirConfirmacao('Tirar esta foto?', 'Tirar');
   if (!ok) return;
-  if (!noComputador()) {
-    toast('Abre o programa neste computador.');
+  const repo = repositorio();
+  if (!GITHUB.token() || !nomeValido(repo.owner) || !nomeValido(repo.repo)) {
+    toast('Não consegui tirar esta foto.');
     return;
   }
   estado.ocupado = true;
   definirProgresso('A remover…');
   try {
-    const manifesto = normalizarManifest(estado.manifest, estado.galeriaId);
+    const info = await GITHUB.pedido(`/repos/${repo.owner}/${repo.repo}`);
+    const branch = repo.branch || info.default_branch;
+    const manifesto = await lerManifestAtual(repo.owner, repo.repo, branch, estado.galeriaId);
     manifesto.fotos = manifesto.fotos.filter((item) => item.id !== foto.id);
     manifesto.atualizado = new Date().toISOString();
-    const apagar = [`galerias/${estado.galeriaId}/${foto.original}`];
-    if (foto.previa && foto.previa !== foto.original) apagar.push(`galerias/${estado.galeriaId}/${foto.previa}`);
-    await guardarLocal([{
-      caminho: `galerias/${estado.galeriaId}/manifest.json`,
-      texto: JSON.stringify(manifesto, null, 2) + '\n'
-    }], apagar, `Remover fotografia de ${estado.galeriaId}`);
+    const arvore = [
+      { path: `galerias/${estado.galeriaId}/${foto.original}`, mode: '100644', type: 'blob', sha: null }
+    ];
+    if (foto.previa && foto.previa !== foto.original) {
+      arvore.push({ path: `galerias/${estado.galeriaId}/${foto.previa}`, mode: '100644', type: 'blob', sha: null });
+    }
+    const sha = await GITHUB.criarBlob(repo.owner, repo.repo, await blobBase64(new Blob([JSON.stringify(manifesto, null, 2)], { type: 'application/json' })));
+    arvore.push({ path: `galerias/${estado.galeriaId}/manifest.json`, mode: '100644', type: 'blob', sha });
+    await GITHUB.commit(repo.owner, repo.repo, branch, arvore, `Remover fotografia de ${estado.galeriaId}`);
     toast('Tirei. O cliente deixa de a ver daqui a um minuto.');
     estado.ocupado = false;
     guardarRascunhoDoFormulario();
@@ -903,7 +927,17 @@ function pintarLogin(mensagem) {
 }
 
 function campoCodigo() {
-  return null;
+  if (GITHUB.token() && !estado.pedirCodigo) return null;
+  return el('div', { id: 'pedir-codigo' }, [
+    el('p', { class: 'sub', text: 'Para guardar, cola o código. É só neste computador.' }),
+    el('label', { text: 'Código' }, el('input', { id: 'campo-token', type: 'password', autocomplete: 'off', spellcheck: 'false' })),
+    el('p', { class: 'sub' }, el('a', {
+      href: 'https://github.com/settings/tokens/new?scopes=repo&description=Catarina',
+      target: '_blank',
+      rel: 'noopener noreferrer',
+      text: 'Criar código'
+    }))
+  ]);
 }
 
 function blocoLigacao() {
@@ -1756,9 +1790,46 @@ async function aoPublicar() {
 }
 
 async function ligarSePreciso() {
-  if (noComputador()) return true;
-  toast('Abre o programa neste computador.');
-  return false;
+  if (GITHUB.token() && !estado.pedirCodigo) return true;
+  const valor = document.getElementById('campo-token')?.value.trim() || '';
+  if (GITHUB.token() && !valor) {
+    estado.pedirCodigo = false;
+    return true;
+  }
+  if (!valor) {
+    estado.pedirCodigo = true;
+    toast('Cola o código. É só desta vez.');
+    const campo = document.getElementById('campo-token');
+    if (campo) {
+      campo.focus();
+      campo.closest('#pedir-codigo')?.scrollIntoView({ block: 'center' });
+    }
+    return false;
+  }
+  const repoInfo = repositorio();
+  const anterior = localStorage.getItem('cc-token');
+  localStorage.setItem('cc-token', valor);
+  try {
+    const info = await GITHUB.pedido(`/repos/${repoInfo.owner}/${repoInfo.repo}`);
+    if (info.permissions && info.permissions.push === false) throw new Error('Não consegui guardar.');
+    localStorage.setItem('cc-repo', JSON.stringify({
+      owner: repoInfo.owner,
+      repo: repoInfo.repo,
+      branch: repoInfo.branch || info.default_branch
+    }));
+    localStorage.setItem('cc-ligado', JSON.stringify({
+      fullName: info.full_name,
+      branch: repoInfo.branch || info.default_branch
+    }));
+    estado.pedirCodigo = false;
+    return true;
+  } catch (erro) {
+    if (anterior) localStorage.setItem('cc-token', anterior);
+    else localStorage.removeItem('cc-token');
+    estado.pedirCodigo = true;
+    toast('Esse código não serviu.');
+    return false;
+  }
 }
 
 async function guardarToken() {
