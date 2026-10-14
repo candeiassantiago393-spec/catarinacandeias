@@ -29,7 +29,8 @@ const estado = {
   catalogo: null,
   formulario: null,
   manifestos: null,
-  manifestNovo: null
+  manifestNovo: null,
+  pedirCodigo: false
 };
 
 const filas = {};
@@ -321,16 +322,31 @@ function idAlbum(titulo) {
   return 'album-' + novoId();
 }
 
+function precisaCodigo(erro) {
+  if (!GITHUB.token() || erro?.semCodigo) return true;
+  return /bad credentials|permission|resource not accessible|must have push access/i.test(erro?.message || '');
+}
+
+function mostrarPedidoDeCodigo() {
+  estado.pedirCodigo = true;
+  estado.ocupado = false;
+  toast('Cola o código. É só desta vez.');
+  if (location.hash === '#/estudio' || location.hash === '#/estudio/') refrescarEstudio();
+  else navegar();
+}
+
 function tituloAlbum(album, manifesto) {
   return manifesto?.titulo || album.titulo || 'Sem nome';
 }
 
 async function commitJson(ficheiros, mensagem) {
   const repo = repositorio();
-  if (!nomeValido(repo.owner) || !nomeValido(repo.repo) || (repo.branch && !nomeValido(repo.branch))) {
-    throw new Error('Não consegui guardar.');
-  }
   if (!GITHUB.token()) {
+    const erro = new Error('Não consegui guardar.');
+    erro.semCodigo = true;
+    throw erro;
+  }
+  if (!nomeValido(repo.owner) || !nomeValido(repo.repo) || (repo.branch && !nomeValido(repo.branch))) {
     throw new Error('Não consegui guardar.');
   }
   const info = await GITHUB.pedido(`/repos/${repo.owner}/${repo.repo}`);
@@ -759,7 +775,11 @@ async function publicarSala(galeriaId, ficheiros, meta, onLote) {
     throw new Error('Não consegui guardar.');
   }
   if (repo.branch && !nomeValido(repo.branch)) throw new Error('Não consegui guardar.');
-  if (!GITHUB.token()) throw new Error('Não consegui guardar.');
+  if (!GITHUB.token()) {
+    const erro = new Error('Não consegui guardar.');
+    erro.semCodigo = true;
+    throw erro;
+  }
 
   const info = await GITHUB.pedido(`/repos/${repo.owner}/${repo.repo}`);
   if (info.permissions && info.permissions.push === false) {
@@ -907,7 +927,12 @@ function pintarLogin(mensagem) {
 }
 
 function blocoLigacao() {
-  return null;
+  if (!estado.pedirCodigo) return null;
+  return el('section', { class: 'painel-form', id: 'pedir-codigo' }, [
+    el('p', { class: 'sub', text: 'Cola o código. É só desta vez, neste computador.' }),
+    el('label', { text: 'Código' }, el('input', { id: 'campo-token', type: 'password', autocomplete: 'off', spellcheck: 'false' })),
+    el('div', { class: 'acoes' }, [botao('guardar-token', 'Pronto', 'primario')])
+  ]);
 }
 
 function selectCliente(album) {
@@ -1023,12 +1048,12 @@ function pintarEstudio(ticket, manifestos) {
       botao('novo-cliente', 'Novo cliente', 'primario'),
       botao('novo-album', 'Novo álbum', 'secundario')
     ]),
+    blocoLigacao(),
     painelFormulario(),
     lista,
   ]));
-  document.getElementById('painel-form')?.scrollIntoView({ block: 'start' });
-  document.getElementById('form-nome')?.focus();
-  document.getElementById('form-titulo')?.focus();
+  document.getElementById('pedir-codigo')?.scrollIntoView({ block: 'start' });
+  (document.getElementById('campo-token') || document.getElementById('form-nome') || document.getElementById('form-titulo'))?.focus();
 }
 
 function pintarAlbunsCliente(ticket) {
@@ -1176,6 +1201,7 @@ function pintarPreparar(ticket, manifesto) {
   app.replaceChildren(el('div', { class: 'pagina preparar' }, [
     topo(conta, familia.nome),
     el('p', { class: 'nao-imprimir' }, el('a', { href: '#/estudio', text: 'Estúdio' })),
+    blocoLigacao(),
     el('section', { class: 'cabeca-sala' }, [
       el('h2', { text: form.titulo || familia.nome || 'Sala' }),
       familia.utilizador ? el('p', { class: 'credenciais', text: familia.utilizador + '  ·  ' + familia.palavraPasse }) : null,
@@ -1741,51 +1767,50 @@ async function aoPublicar() {
   } catch (erro) {
     estado.ocupado = false;
     definirProgresso('');
-    toast(mensagemErro(erro));
     guardarRascunhoDoFormulario();
-    navegar();
+    if (precisaCodigo(erro)) mostrarPedidoDeCodigo();
+    else {
+      toast(mensagemErro(erro));
+      navegar();
+    }
   }
 }
 
 async function guardarToken() {
-  const owner = document.getElementById('campo-owner')?.value.trim() || '';
-  const repo = document.getElementById('campo-repo')?.value.trim() || '';
-  const branch = document.getElementById('campo-branch')?.value.trim() || '';
+  const repoInfo = repositorio();
   const valor = document.getElementById('campo-token')?.value.trim() || '';
-  if (!nomeValido(owner) || !nomeValido(repo)) {
-    toast('Escreva o utilizador e o repositório do GitHub, sem espaços.');
+  if (!valor) {
+    toast('Cola o código.');
     return;
   }
-  if (branch && !nomeValido(branch)) {
-    toast('O ramo só pode ter letras, números, pontos e hífenes.');
+  if (!nomeValido(repoInfo.owner) || !nomeValido(repoInfo.repo)) {
+    toast('Não consegui guardar.');
     return;
   }
   const anterior = localStorage.getItem('cc-token');
-  if (valor) localStorage.setItem('cc-token', valor);
-  if (!localStorage.getItem('cc-token')) {
-    toast('Cole o código do GitHub.');
-    return;
-  }
-  if (valor && !/^github_pat_|^ghp_/.test(valor)) {
-    toast('Esse código não tem o formato habitual. Vou testá-lo mesmo assim.');
-  }
-  localStorage.setItem('cc-repo', JSON.stringify({ owner, repo, branch }));
+  localStorage.setItem('cc-token', valor);
   try {
-    const info = await GITHUB.pedido(`/repos/${owner}/${repo}`);
-    if (info.permissions && info.permissions.push === false) {
-      throw new Error('Não consegui guardar.');
-    }
-    localStorage.setItem('cc-ligado', JSON.stringify({ fullName: info.full_name, branch: branch || info.default_branch }));
+    const info = await GITHUB.pedido(`/repos/${repoInfo.owner}/${repoInfo.repo}`);
+    if (info.permissions && info.permissions.push === false) throw new Error('Não consegui guardar.');
+    localStorage.setItem('cc-repo', JSON.stringify({ owner: repoInfo.owner, repo: repoInfo.repo, branch: repoInfo.branch || info.default_branch }));
+    localStorage.setItem('cc-ligado', JSON.stringify({ fullName: info.full_name, branch: repoInfo.branch || info.default_branch }));
+    estado.pedirCodigo = false;
     const campo = document.getElementById('campo-token');
     if (campo) campo.value = '';
-    toast('Ligado a ' + info.full_name + '.');
+    if (estado.formulario?.tipo === 'cliente') {
+      await guardarClienteDoFormulario();
+      return;
+    }
+    if (estado.formulario?.tipo === 'album') {
+      await guardarAlbumDoFormulario();
+      return;
+    }
+    toast('Já ficou.');
     navegar();
   } catch (erro) {
-    if (valor) {
-      if (anterior) localStorage.setItem('cc-token', anterior);
-      else localStorage.removeItem('cc-token');
-    }
-    toast(mensagemErro(erro));
+    if (anterior) localStorage.setItem('cc-token', anterior);
+    else localStorage.removeItem('cc-token');
+    toast('Esse código não serviu.');
   }
 }
 
@@ -1852,7 +1877,9 @@ async function guardarClienteDoFormulario() {
     refrescarEstudio();
   } catch (erro) {
     estado.ocupado = false;
-    toast(mensagemErro(erro));
+    estado.formulario = { ...form, nome, utilizador, palavraPasse, nota };
+    if (precisaCodigo(erro)) mostrarPedidoDeCodigo();
+    else toast(mensagemErro(erro));
   }
 }
 
@@ -1890,7 +1917,9 @@ async function guardarAlbumDoFormulario() {
     else navegar();
   } catch (erro) {
     estado.ocupado = false;
-    toast(mensagemErro(erro));
+    estado.formulario = { ...(estado.formulario || {}), tipo: 'album', titulo, evento, cliente };
+    if (precisaCodigo(erro)) mostrarPedidoDeCodigo();
+    else toast(mensagemErro(erro));
   }
 }
 
@@ -1915,7 +1944,8 @@ async function alternarCliente(utilizador, ativo) {
     refrescarEstudio();
   } catch (erro) {
     estado.ocupado = false;
-    toast(mensagemErro(erro));
+    if (precisaCodigo(erro)) mostrarPedidoDeCodigo();
+    else toast(mensagemErro(erro));
   }
 }
 
@@ -1941,7 +1971,8 @@ async function retirarCliente(utilizador) {
     refrescarEstudio();
   } catch (erro) {
     estado.ocupado = false;
-    toast(mensagemErro(erro));
+    if (precisaCodigo(erro)) mostrarPedidoDeCodigo();
+    else toast(mensagemErro(erro));
   }
 }
 
@@ -1966,7 +1997,8 @@ async function alternarAlbum(id, ocultar) {
     refrescarEstudio();
   } catch (erro) {
     estado.ocupado = false;
-    toast(mensagemErro(erro));
+    if (precisaCodigo(erro)) mostrarPedidoDeCodigo();
+    else toast(mensagemErro(erro));
   }
 }
 
@@ -1989,7 +2021,8 @@ async function atribuirAlbum(id, utilizador) {
     refrescarEstudio();
   } catch (erro) {
     estado.ocupado = false;
-    toast(mensagemErro(erro));
+    if (precisaCodigo(erro)) mostrarPedidoDeCodigo();
+    else toast(mensagemErro(erro));
     refrescarEstudio();
   }
 }

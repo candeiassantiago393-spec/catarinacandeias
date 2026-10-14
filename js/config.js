@@ -8,9 +8,9 @@ window.CONFIG = {
   nome: "Catarina Candeias",
   oficio: "Fotografia",
   repositorio: {
-    owner: "",
-    repo: "",
-    branch: ""
+    owner: "candeiassantiago393-spec",
+    repo: "catarinacandeias",
+    branch: "main"
   },
   contas: [
     {
