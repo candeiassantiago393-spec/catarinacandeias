@@ -498,6 +498,7 @@ function guardarSelecao(sel) {
 
 let selecaoRemotaTimer = 0;
 let selecaoCadeia = Promise.resolve();
+let codigoPendente = '';
 
 function agendarSelecaoRemota(sel) {
   clearTimeout(selecaoRemotaTimer);
@@ -1058,7 +1059,7 @@ function campoCodigo() {
   if (GITHUB.token() && !estado.pedirCodigo) return null;
   return el('div', { id: 'pedir-codigo' }, [
     el('p', { class: 'sub', text: 'Para guardar, cola o código. É só neste computador.' }),
-    el('label', { text: 'Código' }, el('input', { id: 'campo-token', type: 'password', autocomplete: 'off', spellcheck: 'false' })),
+    el('label', { text: 'Código' }, el('input', { id: 'campo-token', type: 'password', autocomplete: 'off', spellcheck: 'false', value: codigoPendente })),
     el('p', { class: 'sub' }, el('a', {
       href: 'https://github.com/settings/tokens/new?scopes=repo&description=Catarina',
       target: '_blank',
@@ -1939,9 +1940,15 @@ async function aoPublicar() {
   }
 }
 
+function lerCodigoColado() {
+  const valor = document.getElementById('campo-token')?.value.trim() || codigoPendente;
+  if (valor) codigoPendente = valor;
+  return valor;
+}
+
 async function ligarSePreciso() {
   if (GITHUB.token() && !estado.pedirCodigo) return true;
-  const valor = document.getElementById('campo-token')?.value.trim() || '';
+  const valor = lerCodigoColado();
   if (GITHUB.token() && !valor) {
     estado.pedirCodigo = false;
     return true;
@@ -1972,6 +1979,7 @@ async function ligarSePreciso() {
       branch: repoInfo.branch || info.default_branch
     }));
     estado.pedirCodigo = false;
+    codigoPendente = '';
     return true;
   } catch (erro) {
     if (anterior) localStorage.setItem('cc-token', anterior);
@@ -2220,6 +2228,7 @@ async function retirarCliente(utilizador) {
     'Tirar'
   );
   if (!ok) return;
+  if (!(await ligarSePreciso())) return;
   const catalogo = clonarCatalogo();
   catalogo.clientes = catalogo.clientes.filter((conta) => conta.utilizador !== utilizador);
   for (const album of catalogo.albuns) {
@@ -2431,6 +2440,7 @@ function aoClicar(evento) {
 function aoInput(evento) {
   const alvo = evento.target;
   if (alvo.dataset?.campo) guardarRascunhoDoFormulario();
+  if (alvo.id === 'campo-token') codigoPendente = alvo.value.trim();
   if (alvo.id === 'form-nome' && estado.formulario?.modo === 'novo') {
     const user = document.getElementById('form-utilizador');
     if (user && user.dataset.auto === '1') user.value = utilizadorLivre(alvo.value);
