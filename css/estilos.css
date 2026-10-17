@@ -75,10 +75,28 @@ a { color: inherit; }
 }
 
 a.marca {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
   text-decoration: none;
   font-size: clamp(20px, 2.6vw, 26px);
   line-height: 1.05;
   text-wrap: balance;
+}
+
+.logo {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+  background: #0c0b0a;
+}
+
+.login .logo-grande {
+  width: 120px;
+  height: 120px;
+  margin-bottom: 18px;
 }
 
 .kicker {
@@ -335,6 +353,17 @@ button.texto.ligado,
   letter-spacing: -0.03em;
   line-height: 1;
 }
+
+a.cliente-abrir {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+a.cliente-abrir .sub { margin-top: 8px; }
+
+a.cliente-abrir:hover h3,
+a.cliente-abrir:focus-visible h3 { color: var(--ouro); }
 
 .cliente-bloco.desativado { opacity: 0.62; }
 
@@ -642,6 +671,11 @@ button.moldura img,
 
 .barra .contagem {
   font-variant-numeric: tabular-nums;
+}
+
+.barra .separado {
+  margin-left: 14px;
+  color: var(--mudo);
 }
 
 .chips {

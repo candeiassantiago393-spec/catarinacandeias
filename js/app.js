@@ -13,9 +13,7 @@ const FILTROS = [
   ['todas', 'Todas'],
   ['gosto', 'Gosto'],
   ['nao', 'Não gosto'],
-  ['album', 'Álbum'],
-  ['pendentes', 'Por decidir'],
-  ['comentarios', 'Comentários']
+  ['pendentes', 'Por decidir']
 ];
 
 const estado = {
@@ -31,7 +29,9 @@ const estado = {
   manifestos: null,
   manifestNovo: null,
   pedirCodigo: false,
-  sessao: null
+  sessao: null,
+  selecao: null,
+  selecoes: null
 };
 
 const filas = {};
@@ -235,6 +235,14 @@ function albunsVisiveis() {
 
 function albunsDo(utilizador, incluirOcultos) {
   return albunsVisiveis().filter((album) => album.cliente === utilizador && (incluirOcultos || !album.arquivado));
+}
+
+function albumPrincipal(utilizador) {
+  return albunsDo(utilizador, false)[0] || null;
+}
+
+function fotosComGosto(manifesto, sel) {
+  return fotosUteis(manifesto).filter((foto) => sel?.fotos?.[foto.id]?.voto === 'gosto');
 }
 
 function albumPorId(id) {
@@ -479,8 +487,110 @@ function lerSelecao(id) {
   return obj;
 }
 
-function guardarSelecao(sel) {
+function guardarSelecaoLocal(sel) {
   localStorage.setItem('cc-selecao-' + sel.galeria, JSON.stringify(sel));
+}
+
+function guardarSelecao(sel) {
+  guardarSelecaoLocal(sel);
+  agendarSelecaoRemota(sel);
+}
+
+let selecaoRemotaTimer = 0;
+let selecaoCadeia = Promise.resolve();
+
+function agendarSelecaoRemota(sel) {
+  clearTimeout(selecaoRemotaTimer);
+  const copia = JSON.parse(JSON.stringify(sel));
+  selecaoRemotaTimer = setTimeout(() => {
+    selecaoCadeia = selecaoCadeia.then(() => gravarSelecaoRemota(copia)).catch(() => {});
+  }, 900);
+}
+
+function selecaoParaGravar(sel) {
+  const fotos = {};
+  for (const [id, valor] of Object.entries(sel.fotos || {})) {
+    if (!valor || (!valor.voto && !(valor.comentario || '').trim())) continue;
+    fotos[id] = {
+      voto: valor.voto || null,
+      album: valor.voto === 'gosto',
+      comentario: (valor.comentario || '').trim()
+    };
+  }
+  return {
+    tipo: 'selecao-catarina',
+    versao: 1,
+    galeria: sel.galeria,
+    nota: (sel.nota || '').trim(),
+    atualizado: sel.atualizado || new Date().toISOString(),
+    fotos
+  };
+}
+
+function momentoSelecao(sel) {
+  const tempo = Date.parse(sel?.atualizado || sel?.enviadoEm || sel?.recebidoEm || '');
+  return Number.isNaN(tempo) ? 0 : tempo;
+}
+
+function pontuarSelecao(sel) {
+  if (!sel?.fotos) return 0;
+  const marcas = Object.values(sel.fotos).filter((marca) => marca && (marca.voto || (marca.comentario || '').trim())).length;
+  return momentoSelecao(sel) * 1000 + marcas;
+}
+
+function normalizarSelecaoGuardada(obj, galeriaId) {
+  const fotos = {};
+  for (const [id, valor] of Object.entries(obj?.fotos || {})) {
+    if (!/^[\w-]+$/.test(id) || !valor || typeof valor !== 'object') continue;
+    const voto = valor.voto === 'gosto' || valor.voto === 'nao' ? valor.voto : null;
+    fotos[id] = {
+      voto,
+      album: voto === 'gosto',
+      comentario: String(valor.comentario || '').slice(0, 500)
+    };
+  }
+  return {
+    tipo: 'selecao-catarina',
+    versao: 1,
+    galeria: galeriaId,
+    nota: String(obj?.nota || '').slice(0, 2000),
+    atualizado: obj?.atualizado || obj?.enviadoEm || null,
+    fotos
+  };
+}
+
+async function carregarSelecao(id) {
+  const encontradas = [];
+  const local = lerSelecao(id);
+  if (local.atualizado || Object.keys(local.fotos || {}).length) encontradas.push(normalizarSelecaoGuardada(local, id));
+  const recebida = lerRecebida(id);
+  if (recebida) encontradas.push(normalizarSelecaoGuardada(recebida, id));
+  const repo = repositorio();
+  const urls = [];
+  if (nomeValido(repo.owner) && nomeValido(repo.repo)) {
+    const branch = repo.branch || 'main';
+    urls.push(`https://raw.githubusercontent.com/${repo.owner}/${repo.repo}/${encodeURIComponent(branch)}/galerias/${encodeURIComponent(id)}/selecao.json`);
+  }
+  urls.push(new URL(`galerias/${encodeURIComponent(id)}/selecao.json`, document.baseURI).href);
+  for (const url of urls) {
+    try {
+      const resposta = await fetch(url + (url.includes('?') ? '&' : '?') + 't=' + Date.now());
+      if (!resposta.ok) continue;
+      encontradas.push(normalizarSelecaoGuardada(await resposta.json(), id));
+      break;
+    } catch { /* tenta o outro sítio */ }
+  }
+  if (!encontradas.length) return selecaoVazia(id);
+  encontradas.sort((a, b) => pontuarSelecao(b) - pontuarSelecao(a));
+  return encontradas[0];
+}
+
+async function gravarSelecaoRemota(sel) {
+  if (!GITHUB.token() || !sel?.galeria || !nomeValido(sel.galeria)) return;
+  await commitJson(
+    [{ caminho: `galerias/${sel.galeria}/selecao.json`, dados: selecaoParaGravar(sel) }],
+    'Escolha de ' + sel.galeria
+  );
 }
 
 function entradaSelecao(sel, id) {
@@ -897,8 +1007,11 @@ async function removerFotoPublicada(foto) {
 function topo(conta, kicker) {
   const destino = conta.papel === 'fotografa' ? '#/estudio' : destinoCliente(conta);
   return el('header', { class: 'topo' }, [
-    el('div', {}, [
-      el('a', { class: 'marca', href: destino, text: CONFIG.nome }),
+    el('div', { class: 'marca-bloco' }, [
+      el('a', { class: 'marca', href: destino }, [
+        el('img', { class: 'logo', src: 'img/logo.png', alt: '' }),
+        el('span', { text: CONFIG.nome })
+      ]),
       kicker ? el('p', { class: 'kicker', text: kicker }) : null
     ]),
     botao('sair', 'Sair', 'texto nao-imprimir')
@@ -914,6 +1027,7 @@ function pintarLogin(mensagem) {
   const app = document.getElementById('app');
   app.className = '';
   app.replaceChildren(el('section', { class: 'login' }, [
+    el('img', { class: 'logo logo-grande', src: 'img/logo.png', alt: '' }),
     el('h1', { text: CONFIG.nome }),
     el('div', { class: 'login-corpo' }, [
       el('form', { 'data-acao': 'entrar', autocomplete: 'off' }, [
@@ -1031,38 +1145,41 @@ function painelFormulario() {
   return null;
 }
 
+function detalheDoCliente(album, manifestos) {
+  if (!album) return 'Ainda sem página.';
+  const manifesto = manifestos?.[album.id];
+  if (!manifesto) return 'Ainda a chegar.';
+  const fotos = fotosUteis(manifesto).length;
+  const gostos = fotosComGosto(manifesto, estado.selecoes?.[album.id]).length;
+  const partes = [fotos === 0 ? 'Sem fotos' : `${fotos} ${fotos === 1 ? 'foto' : 'fotos'}`];
+  if (gostos) partes.push(`${gostos} no álbum`);
+  return partes.join(' · ');
+}
+
 function pintarEstudio(ticket, manifestos) {
   const conta = sessao();
   document.title = 'Estúdio — ' + CONFIG.nome;
   const lista = el('div', { class: 'salas' });
-  const ordenados = clientes().slice().sort((a, b) => Number(a.ativo === false) - Number(b.ativo === false) || a.nome.localeCompare(b.nome, 'pt'));
-  if (!ordenados.length) {
-    lista.append(el('p', { class: 'sub', text: 'Ainda sem clientes.' }));
-  }
+  const ordenados = clientes().slice().sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
+  if (!ordenados.length) lista.append(el('p', { class: 'sub', text: 'Ainda sem clientes.' }));
   for (const cliente of ordenados) {
-    const albuns = albunsVisiveis().filter((album) => album.cliente === cliente.utilizador);
-    lista.append(el('section', { class: 'cliente-bloco' + (cliente.ativo === false ? ' desativado' : '') }, [
-      cliente.ativo === false ? el('p', { class: 'kicker', text: 'Desativado' }) : null,
+    const album = albumPrincipal(cliente.utilizador);
+    const miolo = [
       el('h3', { text: cliente.nome }),
+      el('p', { class: 'sub', text: detalheDoCliente(album, manifestos) })
+    ];
+    lista.append(el('section', { class: 'cliente-bloco' }, [
+      album
+        ? el('a', { class: 'cliente-abrir', href: '#/estudio/' + album.id }, miolo)
+        : el('div', {}, miolo),
       el('p', { class: 'credenciais', text: cliente.utilizador + '  ·  ' + cliente.palavraPasse }),
       cliente.nota ? el('p', { class: 'sub', text: cliente.nota }) : null,
       el('div', { class: 'acoes nao-imprimir' }, [
         botao('copiar-recado', 'Copiar acesso', 'texto', { 'data-utilizador': cliente.utilizador }),
         botao('editar-cliente', 'Editar', 'texto', { 'data-utilizador': cliente.utilizador }),
-        botao('novo-album', 'Novo álbum', 'texto', { 'data-utilizador': cliente.utilizador }),
-        botao(cliente.ativo === false ? 'reativar-cliente' : 'desativar-cliente', cliente.ativo === false ? 'Reativar' : 'Desativar', 'texto', { 'data-utilizador': cliente.utilizador }),
+        album ? null : botao('abrir-cliente', 'Abrir', 'texto', { 'data-utilizador': cliente.utilizador }),
         botao('retirar-cliente', 'Tirar', 'texto perigo', { 'data-utilizador': cliente.utilizador })
-      ]),
-      albuns.length
-        ? el('div', { class: 'albuns-cliente' }, albuns.map((album) => linhaAlbum(album, manifestos[album.id])))
-        : el('p', { class: 'sub', text: 'Sem álbum.' })
-    ]));
-  }
-  const soltos = albunsVisiveis().filter((album) => !album.cliente);
-  if (soltos.length) {
-    lista.append(el('section', { class: 'cliente-bloco' }, [
-      el('h3', { text: 'Por atribuir' }),
-      el('div', { class: 'albuns-cliente' }, soltos.map((album) => linhaAlbum(album, manifestos[album.id])))
+      ])
     ]));
   }
   const app = document.getElementById('app');
@@ -1070,16 +1187,15 @@ function pintarEstudio(ticket, manifestos) {
   app.replaceChildren(el('div', { class: 'pagina' }, [
     topo(conta),
     el('div', { class: 'acoes nao-imprimir' }, [
-      botao('novo-cliente', 'Novo cliente', 'primario'),
-      botao('novo-album', 'Novo álbum', 'secundario')
+      botao('novo-cliente', 'Criar cliente', 'primario')
     ]),
     estado.formulario ? null : blocoLigacao(),
     painelFormulario(),
-    lista,
+    lista
   ]));
   if (estado.pedirCodigo) document.getElementById('pedir-codigo')?.scrollIntoView({ block: 'center' });
   if (estado.pedirCodigo) document.getElementById('campo-token')?.focus();
-  else document.getElementById('form-nome')?.focus() || document.getElementById('form-titulo')?.focus();
+  else document.getElementById('form-nome')?.focus();
 }
 
 function pintarAlbunsCliente(ticket) {
@@ -1113,16 +1229,22 @@ function pintarAlbunsCliente(ticket) {
 
 function lerFormulario() {
   const root = document.querySelector('.preparar');
-  const valor = (nome) => root.querySelector(`[data-campo="${nome}"]`).value.trim();
-  const limite = Number(valor('limiteAlbum'));
+  const manifesto = estado.manifest || {};
+  const nodo = (nome) => root?.querySelector(`[data-campo="${nome}"]`);
+  const valor = (nome, fallback = '') => {
+    const campo = nodo(nome);
+    return campo ? campo.value.trim() : fallback;
+  };
+  const limite = Number(valor('limiteAlbum', manifesto.limiteAlbum != null ? String(manifesto.limiteAlbum) : '0'));
+  const familia = contaDaGaleria(estado.galeriaId);
   return {
-    evento: valor('evento'),
-    titulo: valor('titulo'),
-    data: valor('data'),
-    local: valor('local'),
-    prazo: valor('prazo'),
+    evento: valor('evento', manifesto.evento || ''),
+    titulo: valor('titulo', manifesto.titulo || '') || familia?.nome || 'Sala',
+    data: valor('data', manifesto.data || ''),
+    local: valor('local', manifesto.local || ''),
+    prazo: valor('prazo', manifesto.prazo || ''),
     limiteAlbum: Number.isFinite(limite) && limite > 0 ? Math.round(limite) : 0,
-    mensagem: valor('mensagem')
+    mensagem: nodo('mensagem') ? nodo('mensagem').value.trim() : (manifesto.mensagem || '')
   };
 }
 
@@ -1154,8 +1276,7 @@ function celulaFoto(foto, modo) {
   if (modo === 'votar') {
     artigo.append(el('div', { class: 'votos' }, [
       botaoIcone('votar', 'visto', 'Gosto', { 'data-voto': 'gosto', 'data-id': foto.id, 'aria-pressed': marca.voto === 'gosto' ? 'true' : 'false' }),
-      botaoIcone('votar', 'cruz', 'Não gosto', { 'data-voto': 'nao', 'data-id': foto.id, 'aria-pressed': marca.voto === 'nao' ? 'true' : 'false' }),
-      botaoIcone('votar', 'estrela', 'Para o álbum', { 'data-voto': 'album', 'data-id': foto.id, 'aria-pressed': marca.album ? 'true' : 'false' })
+      botaoIcone('votar', 'cruz', 'Não gosto', { 'data-voto': 'nao', 'data-id': foto.id, 'aria-pressed': marca.voto === 'nao' ? 'true' : 'false' })
     ]));
   } else if (modo === 'recebida') {
     artigo.append(el('p', { class: 'marca-txt', text: legendaMarca(marca) }));
@@ -1216,11 +1337,32 @@ function blocoRecebida(manifesto) {
   return el('section', { class: 'secção', id: 'zona-selecao' }, corpo);
 }
 
+function blocoAlbum(manifesto) {
+  const sel = estado.selecao || selecaoVazia(estado.galeriaId);
+  const gostos = fotosComGosto(manifesto, sel);
+  const contagem = resumoDe(manifesto, sel);
+  const corpo = [
+    el('h2', { text: 'Álbum' }),
+    el('p', { class: 'sub', text: gostos.length
+      ? `${gostos.length} ${gostos.length === 1 ? 'foto com gosto' : 'fotos com gosto'}`
+      : 'Ainda sem gostos. Aparecem aqui quando o cliente marcar.' })
+  ];
+  if (contagem.total) {
+    corpo.push(el('p', { class: 'sub', text: `${contagem.nao} não gosto · ${contagem.pendentes} por decidir` }));
+  }
+  if ((sel.nota || '').trim()) {
+    corpo.push(el('p', { class: 'etiqueta', text: 'Nota' }));
+    corpo.push(el('p', { class: 'recado', text: sel.nota.trim() }));
+  }
+  if (gostos.length) corpo.push(el('div', { class: 'grelha' }, gostos.map((foto) => celulaFoto(foto, 'album'))));
+  return el('section', { class: 'secção', id: 'zona-album' }, corpo);
+}
+
 function pintarPreparar(ticket, manifesto) {
   const conta = sessao();
   const familia = contaDaGaleria(estado.galeriaId) || { nome: 'Sala', galeria: estado.galeriaId, utilizador: '', palavraPasse: '' };
   const form = aplicarRascunho(manifesto, lerRascunho(estado.galeriaId));
-  document.title = (form.titulo || familia.nome) + ' — preparar';
+  document.title = (familia.nome || form.titulo || 'Sala') + ' — preparar';
   const fila = filaDe(estado.galeriaId);
   const app = document.getElementById('app');
   if (ticket !== pedidoNavegacao) return;
@@ -1228,33 +1370,27 @@ function pintarPreparar(ticket, manifesto) {
     topo(conta, familia.nome),
     el('p', { class: 'nao-imprimir' }, el('a', { href: '#/estudio', text: 'Estúdio' })),
     el('section', { class: 'cabeca-sala' }, [
-      el('h2', { text: form.titulo || familia.nome || 'Sala' }),
+      el('h2', { text: familia.nome || form.titulo || 'Sala' }),
       familia.utilizador ? el('p', { class: 'credenciais', text: familia.utilizador + '  ·  ' + familia.palavraPasse }) : null,
       el('div', { class: 'acoes nao-imprimir' }, [
         botao('copiar-recado', 'Copiar acesso', 'secundario', { 'data-galeria': familia.galeria }),
-        el('a', { class: 'texto', href: '#/sala/' + familia.galeria, text: 'Ver' })
+        el('a', { class: 'texto', href: '#/sala/' + familia.galeria, text: 'Ver como o cliente' })
       ])
     ]),
     el('section', { class: 'secção' }, [
-      el('div', { class: 'duas' }, [
-        el('label', { text: 'Trabalho' }, el('input', { 'data-campo': 'evento', value: form.evento || '', maxlength: '40', placeholder: 'Casamento, sessão…' })),
-        el('label', { text: 'Nome' }, el('input', { 'data-campo': 'titulo', value: form.titulo || '', maxlength: '120' }))
-      ]),
-      el('div', { class: 'duas' }, [
-        el('label', { text: 'Data' }, el('input', { 'data-campo': 'data', type: 'date', value: form.data || '' })),
-        el('label', { text: 'Até quando' }, el('input', { 'data-campo': 'prazo', type: 'date', value: form.prazo || '' }))
-      ]),
-      el('div', { class: 'duas' }, [
-        el('label', { text: 'Sítio' }, el('input', { 'data-campo': 'local', value: form.local || '', maxlength: '160' })),
-        el('label', { text: 'Fotos no álbum' }, el('input', { 'data-campo': 'limiteAlbum', type: 'number', min: '0', step: '1', value: form.limiteAlbum ?? '' }))
-      ]),
-      el('label', { text: 'Recado' }, el('textarea', { 'data-campo': 'mensagem', rows: '3', value: form.mensagem || '' }))
+      el('label', { text: 'Descrição' }, el('textarea', {
+        'data-campo': 'mensagem',
+        rows: '4',
+        maxlength: '2000',
+        value: form.mensagem || '',
+        placeholder: 'O que o cliente lê quando abre as fotos.'
+      }))
     ]),
     el('section', { class: 'secção nao-imprimir' }, [
       el('div', { class: 'queda' }, [
-        el('p', { text: 'Larga as fotos aqui.' }),
+        el('p', { text: 'Larga as fotos aqui, ou escolhe uma pasta.' }),
         el('div', { class: 'acoes' }, [
-          botao('abrir-seletor', 'Escolher', 'secundario', { 'data-alvo': '#ficheiro-fotos' }),
+          botao('abrir-seletor', 'Escolher fotos', 'secundario', { 'data-alvo': '#ficheiro-fotos' }),
           botao('abrir-seletor', 'Uma pasta', 'secundario', { 'data-alvo': '#ficheiro-pasta' })
         ])
       ]),
@@ -1270,10 +1406,9 @@ function pintarPreparar(ticket, manifesto) {
       ]),
       el('p', { id: 'progresso-publicacao', class: 'progresso', 'aria-live': 'polite', text: estado.progresso || '' })
     ]),
-    el('input', { id: 'ficheiro-selecao', type: 'file', hidden: true, accept: 'application/json,.json', 'data-acao': 'importar-ficheiro' }),
-    blocoRecebida(manifesto),
+    blocoAlbum(manifesto),
     fotosUteis(manifesto).length ? el('section', { class: 'secção' }, [
-      el('h2', { text: 'Já no álbum' }),
+      el('h2', { text: 'Fotos' }),
       el('div', { class: 'grelha', id: 'grelha-gerir' }, fotosUteis(manifesto).map((foto) => celulaFoto(foto, 'gerir')))
     ]) : null
   ]));
@@ -1331,13 +1466,12 @@ function atualizarBarra() {
   const barra = document.querySelector('.barra');
   if (!barra || !estado.manifest) return;
   const contagem = resumoDe(estado.manifest, lerSelecao(estado.galeriaId));
-  const limite = Number(estado.manifest.limiteAlbum) || 0;
-  barra.classList.toggle('acima', limite > 0 && contagem.album > limite);
+  barra.classList.remove('acima');
   const mapa = {
     decididas: contagem.decididas + ' de ' + contagem.total,
     gosto: String(contagem.gosto),
     nao: String(contagem.nao),
-    album: limite ? contagem.album + ' de ' + limite : String(contagem.album),
+    album: contagem.gosto ? contagem.gosto + ' no álbum' : 'Nada no álbum',
     pendentes: String(contagem.pendentes)
   };
   for (const [chave, valor] of Object.entries(mapa)) {
@@ -1347,10 +1481,7 @@ function atualizarBarra() {
   const linha = document.querySelector('.avanco > span');
   if (linha) linha.style.width = (contagem.total ? (contagem.decididas / contagem.total) * 100 : 0) + '%';
   const extra = barra.querySelector('[data-contador="extra"]');
-  if (extra) {
-    if (limite && contagem.album > limite) extra.textContent = 'Fotos a mais para o álbum.';
-    else extra.textContent = '';
-  }
+  if (extra) extra.textContent = '';
   FILTROS.forEach(([id, rotulo]) => {
     const botaoFiltro = document.querySelector(`[data-filtro="${id}"]`);
     if (!botaoFiltro) return;
@@ -1396,12 +1527,13 @@ function pintarSala(ticket, manifesto, modo) {
       ? el('p', { class: 'nao-imprimir' }, el('a', { href: '#/albuns', text: 'Álbuns' }))
       : null,
     modo === 'ver' ? el('p', { class: 'nao-imprimir' }, el('a', { href: '#/estudio/' + estado.galeriaId, text: 'Voltar' })) : null,
-    modo === 'votar' ? null : el('section', { class: 'cabeca-sala' }, [
-      [manifesto.evento, familia.nome].filter(Boolean).join(' · ') ? el('p', { class: 'kicker', text: [manifesto.evento, familia.nome].filter(Boolean).join(' · ') }) : null,
+    el('section', { class: 'cabeca-sala' }, [
+      modo === 'ver' && [manifesto.evento, familia.nome].filter(Boolean).join(' · ')
+        ? el('p', { class: 'kicker', text: [manifesto.evento, familia.nome].filter(Boolean).join(' · ') })
+        : null,
       el('h2', { text: manifesto.titulo || familia.nome }),
       meta ? el('p', { class: 'meta-linha', text: meta }) : null,
-      manifesto.mensagem ? el('p', { class: 'recado', text: manifesto.mensagem }) : null,
-      manifesto.prazo ? el('p', { class: 'legenda', text: 'Até ' + dataLonga(manifesto.prazo) + '.' }) : null
+      manifesto.mensagem ? el('p', { class: 'recado', text: manifesto.mensagem }) : null
     ])
   ];
   if (!fotos.length) {
@@ -1424,11 +1556,9 @@ function pintarSala(ticket, manifesto, modo) {
     ]));
     miolos.push(el('div', { class: 'barra nao-imprimir' }, [
       el('p', { class: 'contagem' }, [
-        el('span', { 'data-contador': 'decididas', text: '' })
-      ]),
-      el('p', { class: 'legenda', 'data-contador': 'extra', text: '' }),
-      el('p', { class: 'legenda', 'data-contador': 'envio', text: '' }),
-      el('div', { class: 'acoes' }, [botao('enviar-selecao', 'Enviar', 'primario')])
+        el('span', { 'data-contador': 'album', text: '' }),
+        el('span', { class: 'separado', 'data-contador': 'decididas', text: '' })
+      ])
     ]));
   } else {
     miolos.push(el('div', { class: 'grelha grelha-ver' }, fotos.map((foto) => celulaFoto(foto, 'ver'))));
@@ -1501,8 +1631,7 @@ function abrirLuz(id, modo) {
   if (estado.modoLuz === 'votar') {
     controlos.push(
       botaoIcone('votar', 'visto', 'Gosto', { 'data-voto': 'gosto', 'data-id': foto.id, 'aria-pressed': marca.voto === 'gosto' ? 'true' : 'false' }),
-      botaoIcone('votar', 'cruz', 'Não gosto', { 'data-voto': 'nao', 'data-id': foto.id, 'aria-pressed': marca.voto === 'nao' ? 'true' : 'false' }),
-      botaoIcone('votar', 'estrela', 'Para o álbum', { 'data-voto': 'album', 'data-id': foto.id, 'aria-pressed': marca.album ? 'true' : 'false' })
+      botaoIcone('votar', 'cruz', 'Não gosto', { 'data-voto': 'nao', 'data-id': foto.id, 'aria-pressed': marca.voto === 'nao' ? 'true' : 'false' })
     );
   }
   controlos.push(botao('fechar-luz', 'Fechar', 'texto'));
@@ -1564,7 +1693,7 @@ function aplicarVoto(id, voto) {
     marca.album = false;
   } else {
     marca.voto = voto;
-    if (voto === 'nao') marca.album = false;
+    marca.album = voto === 'gosto';
   }
   sel.atualizado = new Date().toISOString();
   guardarSelecao(sel);
@@ -1932,26 +2061,49 @@ async function guardarClienteDoFormulario() {
   }
   if (form.modo === 'novo') {
     catalogo.clientes.push({ utilizador, palavraPasse, nome, ativo: true, nota });
-  } else {
-    const atual = catalogo.clientes.find((conta) => conta.utilizador === form.original);
-    if (!atual) { toast('Não encontrei esse cliente.'); return; }
-    if (form.original !== utilizador) {
-      for (const album of catalogo.albuns) {
-        if (album.cliente === form.original) album.cliente = utilizador;
-      }
+    const id = idAlbum(nome);
+    const manifesto = normalizarManifest({ id, titulo: nome, mensagem: '', fotos: [] }, id);
+    catalogo.albuns.push({ id, cliente: utilizador, arquivado: false, titulo: nome, evento: '' });
+    estado.ocupado = true;
+    try {
+      await commitJson([
+        { caminho: 'dados/estudio.json', dados: catalogo },
+        { caminho: `galerias/${id}/manifest.json`, dados: manifesto }
+      ], 'Novo cliente ' + utilizador);
+      estado.catalogo = catalogo;
+      estado.manifestos = estado.manifestos || {};
+      estado.manifestos[id] = manifesto;
+      estado.selecoes = estado.selecoes || {};
+      estado.selecoes[id] = selecaoVazia(id);
+      estado.formulario = null;
+      estado.ocupado = false;
+      toast('Cliente criado.');
+      refrescarEstudio();
+    } catch (erro) {
+      estado.ocupado = false;
+      estado.formulario = { ...form, nome, utilizador, palavraPasse, nota };
+      if (precisaCodigo(erro)) mostrarPedidoDeCodigo();
+      else toast(mensagemErro(erro));
     }
-    atual.utilizador = utilizador;
-    atual.nome = nome;
-    atual.palavraPasse = palavraPasse;
-    atual.nota = nota;
+    return;
   }
-  const modo = form.modo;
+  const atual = catalogo.clientes.find((conta) => conta.utilizador === form.original);
+  if (!atual) { toast('Não encontrei esse cliente.'); return; }
+  if (form.original !== utilizador) {
+    for (const album of catalogo.albuns) {
+      if (album.cliente === form.original) album.cliente = utilizador;
+    }
+  }
+  atual.utilizador = utilizador;
+  atual.nome = nome;
+  atual.palavraPasse = palavraPasse;
+  atual.nota = nota;
   estado.ocupado = true;
   try {
-    await gravarCatalogo(catalogo, modo === 'novo' ? 'Novo cliente ' + utilizador : 'Atualizar cliente ' + utilizador);
+    await gravarCatalogo(catalogo, 'Atualizar cliente ' + utilizador);
     estado.formulario = null;
     estado.ocupado = false;
-    toast(modo === 'novo' ? 'Cliente criado.' : 'Atualizei.');
+    toast('Atualizei.');
     refrescarEstudio();
   } catch (erro) {
     estado.ocupado = false;
@@ -1997,6 +2149,37 @@ async function guardarAlbumDoFormulario() {
   } catch (erro) {
     estado.ocupado = false;
     estado.formulario = { ...(estado.formulario || {}), tipo: 'album', titulo, evento, cliente };
+    if (precisaCodigo(erro)) mostrarPedidoDeCodigo();
+    else toast(mensagemErro(erro));
+  }
+}
+
+async function garantirPagina(utilizador) {
+  if (estado.ocupado) return;
+  const cliente = clientes().find((conta) => conta.utilizador === utilizador);
+  if (!cliente) return;
+  const existente = albumPrincipal(utilizador);
+  if (existente) {
+    location.hash = '#/estudio/' + existente.id;
+    return;
+  }
+  if (!(await ligarSePreciso())) return;
+  const id = idAlbum(cliente.nome);
+  const manifesto = normalizarManifest({ id, titulo: cliente.nome, mensagem: '', fotos: [] }, id);
+  const catalogo = clonarCatalogo();
+  catalogo.albuns.push({ id, cliente: utilizador, arquivado: false, titulo: cliente.nome, evento: '' });
+  estado.ocupado = true;
+  try {
+    await commitJson([
+      { caminho: 'dados/estudio.json', dados: catalogo },
+      { caminho: `galerias/${id}/manifest.json`, dados: manifesto }
+    ], 'Página de ' + cliente.nome);
+    estado.catalogo = catalogo;
+    estado.manifestNovo = manifesto;
+    estado.ocupado = false;
+    location.hash = '#/estudio/' + id;
+  } catch (erro) {
+    estado.ocupado = false;
     if (precisaCodigo(erro)) mostrarPedidoDeCodigo();
     else toast(mensagemErro(erro));
   }
@@ -2179,6 +2362,7 @@ function aoClicar(evento) {
     return;
   }
   if (acao === 'guardar-cliente') { guardarClienteDoFormulario(); return; }
+  if (acao === 'abrir-cliente') { garantirPagina(alvo.dataset.utilizador); return; }
   if (acao === 'guardar-album') { guardarAlbumDoFormulario(); return; }
   if (acao === 'desativar-cliente') { alternarCliente(alvo.dataset.utilizador, false); return; }
   if (acao === 'reativar-cliente') { alternarCliente(alvo.dataset.utilizador, true); return; }
@@ -2296,7 +2480,7 @@ function aoTecla(evento) {
     return;
   }
   if (evento.target.closest('textarea, input')) return;
-  const mapa = { g: 'gosto', G: 'gosto', n: 'nao', N: 'nao', a: 'album', A: 'album' };
+  const mapa = { g: 'gosto', G: 'gosto', n: 'nao', N: 'nao' };
   if (mapa[evento.key]) {
     evento.preventDefault();
     aplicarVoto(estado.luzId, mapa[evento.key]);
@@ -2358,9 +2542,14 @@ async function navegar() {
       estado.modoLuz = 'votar';
       app.replaceChildren(el('p', { class: 'a-carregar pagina', text: 'A abrir a sala…' }));
       try {
-        const manifesto = await carregarManifestOuVazio(id);
+        const [manifesto, selecao] = await Promise.all([
+          carregarManifestOuVazio(id),
+          carregarSelecao(id)
+        ]);
         if (ticket !== pedidoNavegacao) return;
         estado.manifest = manifesto;
+        if (pontuarSelecao(selecao) > pontuarSelecao(lerSelecao(id))) guardarSelecaoLocal(selecao);
+        estado.selecao = selecao;
         pintarSala(ticket, manifesto, 'votar');
       } catch {
         if (ticket === pedidoNavegacao) pintarErro('Não consegui abrir a sua sala.');
@@ -2401,9 +2590,13 @@ async function navegar() {
     estado.galeriaId = id;
     app.replaceChildren(el('p', { class: 'a-carregar pagina', text: 'A abrir a sala…' }));
     try {
-      const manifesto = await carregarManifestOuVazio(id);
+      const [manifesto, selecao] = await Promise.all([
+        carregarManifestOuVazio(id),
+        carregarSelecao(id)
+      ]);
       if (ticket !== pedidoNavegacao) return;
       estado.manifest = manifesto;
+      estado.selecao = selecao;
       pintarPreparar(ticket, manifesto);
     } catch {
       if (ticket === pedidoNavegacao) pintarErro('Não consegui abrir esta sala.');
@@ -2416,11 +2609,15 @@ async function navegar() {
   }
   app.replaceChildren(el('p', { class: 'a-carregar pagina', text: 'A abrir o estúdio…' }));
   const pares = await Promise.all(albunsVisiveis().map(async (album) => {
-    try { return [album.id, await carregarManifest(album.id)]; }
-    catch { return [album.id, null]; }
+    const [manifesto, selecao] = await Promise.all([
+      carregarManifest(album.id).catch(() => null),
+      carregarSelecao(album.id).catch(() => null)
+    ]);
+    return [album.id, manifesto, selecao];
   }));
   if (ticket !== pedidoNavegacao) return;
-  estado.manifestos = Object.fromEntries(pares);
+  estado.manifestos = Object.fromEntries(pares.map(([idAlbumAberto, manifesto]) => [idAlbumAberto, manifesto]));
+  estado.selecoes = Object.fromEntries(pares.map(([idAlbumAberto, , selecao]) => [idAlbumAberto, selecao]));
   pintarEstudio(ticket, estado.manifestos);
 }
 
