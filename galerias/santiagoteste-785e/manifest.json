@@ -6,7 +6,44 @@
   "local": "",
   "prazo": "",
   "limiteAlbum": 30,
-  "mensagem": "",
-  "fotos": [],
-  "atualizado": null
+  "mensagem": "Parabéns",
+  "fotos": [
+    {
+      "id": "b4d7240ba3d9905c",
+      "nome": "Captura de ecrã 2026-10-17 161836.png",
+      "original": "originais/b4d7240ba3d9905c.png",
+      "previa": "previas/b4d7240ba3d9905c.jpg",
+      "largura": 2560,
+      "altura": 1600,
+      "bytes": 171990
+    },
+    {
+      "id": "be2dcae68553d021",
+      "nome": "Captura de ecrã 2026-10-17 162213.png",
+      "original": "originais/be2dcae68553d021.png",
+      "previa": "previas/be2dcae68553d021.jpg",
+      "largura": 1122,
+      "altura": 766,
+      "bytes": 40649
+    },
+    {
+      "id": "d35668bb9b1a89dc",
+      "nome": "Captura de ecrã 2026-10-17 162216.png",
+      "original": "originais/d35668bb9b1a89dc.png",
+      "previa": "previas/d35668bb9b1a89dc.jpg",
+      "largura": 880,
+      "altura": 480,
+      "bytes": 35723
+    },
+    {
+      "id": "4234aceb74f20527",
+      "nome": "Captura de ecrã 2026-10-17 162218.png",
+      "original": "originais/4234aceb74f20527.png",
+      "previa": "previas/4234aceb74f20527.jpg",
+      "largura": 678,
+      "altura": 398,
+      "bytes": 16643
+    }
+  ],
+  "atualizado": "2026-10-17T15:22:35.392Z"
 }
