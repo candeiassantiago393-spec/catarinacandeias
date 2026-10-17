@@ -1,4 +1,20 @@
 {
-  "clientes": [],
-  "albuns": []
+  "clientes": [
+    {
+      "utilizador": "santiagoteste",
+      "palavraPasse": "santiago1904",
+      "nome": "santiagoteste",
+      "ativo": true,
+      "nota": ""
+    }
+  ],
+  "albuns": [
+    {
+      "id": "santiagoteste-785e",
+      "cliente": "santiagoteste",
+      "arquivado": false,
+      "titulo": "santiagoteste",
+      "evento": ""
+    }
+  ]
 }
