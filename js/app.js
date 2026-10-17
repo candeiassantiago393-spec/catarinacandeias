@@ -700,6 +700,129 @@ function descarregar(nome, conteudo, tipo) {
   setTimeout(() => URL.revokeObjectURL(ligacao.href), 2500);
 }
 
+const CRC32 = new Uint32Array(256);
+for (let n = 0; n < 256; n += 1) {
+  let c = n;
+  for (let k = 0; k < 8; k += 1) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+  CRC32[n] = c >>> 0;
+}
+
+function crc32De(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i += 1) c = CRC32[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function juntarBytes(partes) {
+  let tamanho = 0;
+  for (const parte of partes) tamanho += parte.length;
+  const saida = new Uint8Array(tamanho);
+  let cursor = 0;
+  for (const parte of partes) {
+    saida.set(parte, cursor);
+    cursor += parte.length;
+  }
+  return saida;
+}
+
+function u16(n) {
+  return Uint8Array.of(n & 255, (n >>> 8) & 255);
+}
+
+function u32(n) {
+  return Uint8Array.of(n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255);
+}
+
+async function criarZip(ficheiros) {
+  const encoder = new TextEncoder();
+  const partes = [];
+  const centrais = [];
+  let offset = 0;
+  for (const ficheiro of ficheiros) {
+    const nome = encoder.encode(ficheiro.nome);
+    const dados = new Uint8Array(await ficheiro.blob.arrayBuffer());
+    const crc = crc32De(dados);
+    const local = juntarBytes([
+      u32(0x04034b50), u16(20), u16(0x0800), u16(0), u16(0), u16(0),
+      u32(crc), u32(dados.length), u32(dados.length), u16(nome.length), u16(0), nome
+    ]);
+    const central = juntarBytes([
+      u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0), u16(0), u16(0),
+      u32(crc), u32(dados.length), u32(dados.length), u16(nome.length),
+      u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset), nome
+    ]);
+    partes.push(local, dados);
+    centrais.push(central);
+    offset += local.length + dados.length;
+  }
+  const diretorio = juntarBytes(centrais);
+  const fim = juntarBytes([
+    u32(0x06054b50), u16(0), u16(0), u16(ficheiros.length), u16(ficheiros.length),
+    u32(diretorio.length), u32(offset), u16(0)
+  ]);
+  return new Blob([...partes, diretorio, fim], { type: 'application/zip' });
+}
+
+function nomeDeFicheiro(nome, indice, usados) {
+  const bruto = String(nome || '').split(/[/\\]/).pop() || ('foto-' + String(indice + 1).padStart(2, '0') + '.jpg');
+  const limpo = bruto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.\- ]+/g, '_').replace(/_+/g, '_').trim() || ('foto-' + (indice + 1) + '.jpg');
+  const ponto = limpo.lastIndexOf('.');
+  const raiz = ponto > 0 ? limpo.slice(0, ponto) : limpo;
+  const ext = ponto > 0 ? limpo.slice(ponto) : '';
+  let candidato = limpo;
+  let n = 2;
+  while (usados.has(candidato.toLowerCase())) {
+    candidato = raiz + '-' + n + ext;
+    n += 1;
+  }
+  usados.add(candidato.toLowerCase());
+  return candidato;
+}
+
+function nomeDaPasta(texto) {
+  const limpo = String(texto || 'gostos').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.\- ]+/g, '').trim();
+  return limpo || 'gostos';
+}
+
+async function transferirGostos() {
+  if (estado.ocupado || !estado.manifest) return;
+  const gostos = fotosComGosto(estado.manifest, estado.selecao || selecaoVazia(estado.galeriaId));
+  if (!gostos.length) {
+    toast('Ainda sem gostos.');
+    return;
+  }
+  const botaoTransferir = document.querySelector('[data-acao="transferir-gostos"]');
+  estado.ocupado = true;
+  if (botaoTransferir) botaoTransferir.disabled = true;
+  try {
+    const usados = new Set();
+    const ficheiros = [];
+    for (let i = 0; i < gostos.length; i += 1) {
+      const foto = gostos[i];
+      if (botaoTransferir) botaoTransferir.textContent = `A transferir ${i + 1} de ${gostos.length}…`;
+      const resposta = await fetch(urlFoto(estado.galeriaId, foto.original || foto.previa, estado.manifest.atualizado));
+      if (!resposta.ok) throw new Error('Não consegui trazer uma das fotos.');
+      ficheiros.push({
+        nome: nomeDeFicheiro(foto.nome, i, usados),
+        blob: await resposta.blob()
+      });
+    }
+    if (botaoTransferir) botaoTransferir.textContent = 'A preparar a pasta…';
+    const zip = await criarZip(ficheiros);
+    const familia = contaDaGaleria(estado.galeriaId);
+    descarregar(nomeDaPasta(familia?.nome) + '-gostos.zip', zip, 'application/zip');
+    toast('A pasta ficou no computador.');
+  } catch (erro) {
+    toast(mensagemErro(erro));
+  } finally {
+    estado.ocupado = false;
+    if (botaoTransferir && document.contains(botaoTransferir)) {
+      botaoTransferir.disabled = false;
+      botaoTransferir.textContent = 'Transferir pasta';
+    }
+  }
+}
+
 function campoCsv(valor) {
   const texto = String(valor ?? '');
   const seguro = /^[=+\-@]/.test(texto) ? "'" + texto : texto;
@@ -1355,7 +1478,13 @@ function blocoAlbum(manifesto) {
     corpo.push(el('p', { class: 'etiqueta', text: 'Nota' }));
     corpo.push(el('p', { class: 'recado', text: sel.nota.trim() }));
   }
-  if (gostos.length) corpo.push(el('div', { class: 'grelha' }, gostos.map((foto) => celulaFoto(foto, 'album'))));
+  if (gostos.length) {
+    corpo.push(el('div', { class: 'acoes nao-imprimir' }, [
+      botao('transferir-gostos', 'Transferir pasta', 'primario', { disabled: estado.ocupado })
+    ]));
+    corpo.push(el('p', { class: 'sub', text: 'Descarrega para o computador as fotos que ficaram com gosto.' }));
+    corpo.push(el('div', { class: 'grelha' }, gostos.map((foto) => celulaFoto(foto, 'album'))));
+  }
   return el('section', { class: 'secção', id: 'zona-album' }, corpo);
 }
 
@@ -2401,6 +2530,7 @@ function aoClicar(evento) {
     return;
   }
   if (acao === 'publicar') { aoPublicar(); return; }
+  if (acao === 'transferir-gostos') { transferirGostos(); return; }
   if (acao === 'atualizar') { navegar(); return; }
   if (acao === 'remover') {
     const foto = fotosUteis(estado.manifest).find((item) => item.id === alvo.dataset.id);

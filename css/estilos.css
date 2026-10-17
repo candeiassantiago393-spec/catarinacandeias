@@ -37,7 +37,11 @@ body.travado { overflow: hidden; }
 
 button, input, textarea, select { font: inherit; color: inherit; }
 
-button { cursor: pointer; }
+input, textarea, select { font-size: 16px; }
+
+button { cursor: pointer; touch-action: manipulation; }
+
+a.primario, a.secundario, button.primario, button.secundario { touch-action: manipulation; }
 
 img { max-width: 100%; }
 
@@ -650,10 +654,12 @@ button.moldura img,
   margin-bottom: 12px;
 }
 
-.sala-cliente .pagina { padding-bottom: 210px; }
+.sala-cliente .pagina { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 .sala-cliente .foto,
 .sala-cliente .nota-geral,
-.sala-cliente .filtros { scroll-margin-bottom: 210px; }
+.sala-cliente .filtros { scroll-margin-bottom: calc(96px + env(safe-area-inset-bottom)); }
+
+#app.sala-cliente ~ .aviso { bottom: calc(76px + env(safe-area-inset-bottom)); }
 
 .barra {
   position: fixed;
@@ -798,6 +804,120 @@ button.moldura img,
   .album-linha { grid-template-columns: 1fr; }
   .lado { justify-content: flex-start; }
   .grelha { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .pagina { padding: 16px 16px calc(32px + env(safe-area-inset-bottom)); }
+
+  .topo {
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+  }
+
+  a.marca {
+    min-width: 0;
+    font-size: 18px;
+  }
+
+  a.marca span { min-width: 0; }
+
+  .logo { width: 42px; height: 42px; }
+
+  .login {
+    padding: 28px 16px calc(32px + env(safe-area-inset-bottom));
+  }
+
+  .login h1 {
+    font-size: clamp(40px, 12vw, 64px);
+    margin-bottom: 22px;
+  }
+
+  .login .logo-grande {
+    width: 88px;
+    height: 88px;
+    margin-bottom: 12px;
+  }
+
+  .cliente-bloco h3 { font-size: 34px; }
+
+  .cabeca-sala h2 { font-size: clamp(36px, 12vw, 52px); }
+
+  .credenciais { overflow-wrap: anywhere; }
+
+  .grelha {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px 10px;
+  }
+
+  .votos { gap: 2px; }
+
+  .icone-botao {
+    width: 48px;
+    height: 48px;
+  }
+
+  .primario,
+  .secundario,
+  a.primario,
+  a.secundario {
+    min-height: 44px;
+  }
+
+  button.texto { min-height: 44px; }
+
+  .acoes { gap: 8px 14px; }
+
+  .queda .acoes { flex-direction: column; align-items: stretch; }
+
+  .queda .acoes .primario,
+  .queda .acoes .secundario,
+  .queda .acoes a.secundario { text-align: center; }
+
+  #zona-album .primario { width: 100%; text-align: center; }
+
+  .filtros {
+    flex-wrap: nowrap;
+    gap: 0 8px;
+    margin-right: -16px;
+    padding-bottom: 6px;
+    overflow-x: auto;
+  }
+
+  .filtros button {
+    flex: none;
+    min-height: 44px;
+    padding-right: 8px;
+  }
+
+  .barra { padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); }
+
+  .luz-barra {
+    max-height: 46dvh;
+    overflow: auto;
+  }
+
+  .luz-barra textarea { min-height: 72px; }
+
+  .luz-controlos .icone-botao {
+    width: 52px;
+    height: 52px;
+  }
+
+  .aviso {
+    left: 12px;
+    right: 12px;
+    max-width: none;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .nota-geral textarea { min-height: 72px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
